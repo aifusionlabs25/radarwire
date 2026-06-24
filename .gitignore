@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# Local/runtime radar state
+.radar-data/
+*.db
+*.sqlite
+*.sqlite3
+reports/
+logs/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+*.local.yaml
+config.local.yaml
+config.production.yaml
+
+# Generated scaffolding from the initial Hermes build session
+_write_part*.py
+_write_tests.py
+_run_part*.py
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local/generated pilot proof artifacts
+config.pilot.hermes-*.yaml
+config.pilot.tuned-placeholder*.yaml
+config.pilot.*local-capture*.yaml
+config.pilot.*preflight-nosend*.yaml
+BUILD_STATUS.md
+PRD.from-prompt-backup.md
+docs/HERMES_DESKTOP_BUILD_PROMPT_v0.2.txt

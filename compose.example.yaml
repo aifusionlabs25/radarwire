@@ -1,0 +1,11 @@
+services:
+  radar:
+    build: .
+    command: ["scan", "--config", "/config/config.yaml"]
+    volumes:
+      - ./config.v0.2.example.yaml:/config/config.yaml:ro
+      - radar-data:/data
+    environment:
+      RADAR_DATA_DIR: /data
+      RADAR_DATABASE_URL: sqlite:////data/radar.db
+volumes: { radar-data: {} }

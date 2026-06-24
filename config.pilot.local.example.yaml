@@ -1,0 +1,80 @@
+workspace_id: local-pilot
+data_dir: .radar-data/pilot
+database_url: sqlite:///.radar-data/pilot/radar.db
+dry_run: true
+log_level: INFO
+hermes:
+  profile: amy-radar
+  skill: competitor-content-radar
+  command: hermes
+  one_shot_flag: -z
+  profile_flag: -p
+  skill_flag: -s
+  toolsets_flag: -t
+  toolsets: safe
+  timeout_seconds: 180
+  enabled: true
+  max_chars: 12000
+email:
+  enabled: false
+  preview_only: true
+  smtp_host: localhost
+  smtp_port: 1025
+  smtp_username_env: RADAR_SMTP_USERNAME
+  smtp_password_env: RADAR_SMTP_PASSWORD
+  use_tls: false
+  sender_email: sender@example.com
+  recipient_email: recipient@example.com
+  reply_to_email: reply@example.com
+  subject_prefix: '[Competitor Radar]'
+  attach_markdown: true
+crawl:
+  user_agent: CompetitorContentRadar/0.2 (+operator-configured; respectful dry-run)
+  timeout_seconds: 20
+  max_articles_per_source: 10
+  min_update_delta: 0.08
+  respect_robots: true
+sources:
+- id: patriot-accounting
+  name: Patriot Software Accounting Blog
+  url: https://www.patriotsoftware.com/blog/accounting/
+  allowed_domains:
+  - www.patriotsoftware.com
+  - patriotsoftware.com
+  allowed_paths:
+  - /blog/accounting/
+- id: bench-tax-tips
+  name: Bench Tax Tips
+  url: https://www.bench.co/blog/tax-tips
+  allowed_domains:
+  - www.bench.co
+  - bench.co
+  allowed_paths:
+  - /blog/tax-tips
+  - /blog/
+- id: quickbooks-taxes
+  name: QuickBooks Taxes
+  url: https://quickbooks.intuit.com/r/taxes/
+  allowed_domains:
+  - quickbooks.intuit.com
+  allowed_paths:
+  - /r/taxes/
+- id: taxjar-blog
+  name: TaxJar Blog
+  url: https://www.taxjar.com/blog/2026-sales-tax-holidays?utm_source=chatgpt.com
+  seed_article: true
+  monitor_url: https://www.taxjar.com/blog/
+  allowed_domains:
+  - www.taxjar.com
+  - taxjar.com
+  allowed_paths:
+  - /blog/
+  - /resources/blog
+- id: avalara-na
+  name: Avalara North America Blog
+  url: https://www.avalara.com/blog/en/north-america.html
+  allowed_domains:
+  - www.avalara.com
+  - avalara.com
+  allowed_paths:
+  - /blog/en/
