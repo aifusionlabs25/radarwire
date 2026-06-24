@@ -44,3 +44,5 @@ config.pilot.*preflight-nosend*.yaml
 BUILD_STATUS.md
 PRD.from-prompt-backup.md
 docs/HERMES_DESKTOP_BUILD_PROMPT_v0.2.txt
+.vercel
+.env*.local
