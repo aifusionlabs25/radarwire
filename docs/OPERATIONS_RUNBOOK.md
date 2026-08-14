@@ -107,6 +107,8 @@ The export command writes `.radar-data/site-export/reports/<run_id>/index.html` 
 
 If an export folder already exists, the command refuses to overwrite it unless `--overwrite` is supplied after manual review.
 
+For an approved client route that must remain unchanged between weekly reports, pass `--route-name <client-route> --overwrite`. The generated `report-site.json` retains the actual run ID and export timestamp, which must be checked after deployment.
+
 ## Windows runner and scheduler posture
 
 `run-radar.ps1` accepts `-PythonExe` or `RADAR_PYTHON_EXE`, prefers `.venv`, and falls back to the known system Python path on this machine.
@@ -117,12 +119,14 @@ Safe runner smoke example:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& { .\scripts\windows\run-radar.ps1 -PythonExe 'C:\Users\AI Fusion Labs\AppData\Local\Programs\Python\Python311\python.exe' -ConfigPath 'config.pilot.local.yaml' -ExtraArgs '--fixture','--fixture-data-dir','.radar-data/pilot-runner-fixture'; exit $LASTEXITCODE }"
 ```
 
-Scheduler scripts are reference/prepared artifacts only for now. Do not register, start, enable, or modify a Windows Task Scheduler task unless separately approved. `install-scheduled-task.ps1 -WhatIf` is the only acceptable scheduler check in the current pilot lane.
+The weekly publication lane is `publish-weekly-report.ps1`. It performs a strict no-email preflight, resumes interrupted publishing, runs the scan only when no publishable run is pending, refuses dirty source results, preserves the previous report when there are no changed articles, deploys the stable route, and verifies the live run ID. Review `.radar-data/weekly-publish/state.json` and its referenced log after every scheduled execution.
+
+`install-weekly-publish-task.ps1` prepares a Sunday 6:00 PM local task and defaults to `WhatIfOnly`. Register it only after explicit operator approval with the client config, site root, route name, Python path, and Vercel CLI path supplied explicitly. The task uses `StartWhenAvailable`, three bounded retries, and no Hermes Desktop GUI.
 
 ## Future migration reference only
 
-Cloud/container guidance is future reference only. Do not run Docker, Render, GCP, Vercel, or cloud scheduler commands for the current pilot.
+Cloud worker/container guidance is future reference only. The approved pilot may use Vercel for generated static report hosting, but discovery, Hermes analysis, SQLite state, and scheduling remain local.
 
 ## Rollback
 
-Because scheduler and live SMTP are disabled, rollback is local and simple: stop running commands, preserve `.radar-data/pilot`, and inspect `radar state-audit`. Do not delete runtime state without approval.
+To roll back a weekly publish, disable the task, preserve `.radar-data`, inspect `state-audit` plus `.radar-data/weekly-publish/state.json`, and redeploy a previously reviewed static export if needed. Do not delete runtime state without approval. Live SMTP remains a separate capability and is not enabled by the weekly publisher.

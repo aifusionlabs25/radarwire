@@ -137,10 +137,16 @@ Run `editorial-review-validate` with the same manifest and output directory befo
 
 ## Interactive report page export
 
-The app can prepare a static report folder for a future Vercel/static-site lane without deploying anything:
+The app can prepare either an immutable run route or a stable client-facing route for static hosting:
 
 ```powershell
 & "C:\Users\AI Fusion Labs\AppData\Local\Programs\Python\Python311\python.exe" -m radar.cli export-report-site --config config.pilot.local.yaml --run-id <run_id>
+```
+
+For a link that stays the same from week to week, add a reviewed route name and explicit overwrite:
+
+```powershell
+& "C:\Users\AI Fusion Labs\AppData\Local\Programs\Python\Python311\python.exe" -m radar.cli export-report-site --config config.pilot.local.yaml --run-id <run_id> --route-name 1099fire-radar --overwrite
 ```
 
 Default output:
@@ -149,7 +155,7 @@ Default output:
 .radar-data/site-export/reports/<run_id>/index.html
 ```
 
-That `index.html` is the same interactive report as `digest.html`. The command copies files only; it does not send email, run the crawler, call Hermes, register a scheduler, or deploy to Vercel. If this becomes client-facing, host it behind an approved private URL, tokenized path, password, or login rather than leaving reports openly discoverable.
+That `index.html` is the same interactive report as `digest.html`. The command copies files only; it does not send email, run the crawler, call Hermes, register a scheduler, or deploy to Vercel. `report-site.json` records the real run ID, export time, article count, source-error count, and stable route so a separate publisher can verify exactly what went live. If this becomes client-facing, host it behind an approved private URL, tokenized path, password, or login rather than leaving reports openly discoverable.
 
 ## Crawling scope and update detection
 
@@ -164,6 +170,10 @@ TaxJar permits only `/blog/` and the observed safe redirect target `/resources/b
 Review scripts in `scripts/windows`. `install-scheduled-task.ps1` must remain WhatIf/prepared only unless scheduler registration is separately approved.
 
 `run-radar.ps1` does not rely on ambiguous plain `python`; it accepts `-PythonExe`, then checks `RADAR_PYTHON_EXE`, then `.venv\Scripts\python.exe`, then the known system Python path.
+
+`publish-weekly-report.ps1` is the guarded Sunday-report lane. It requires `dry_run: true`, `email.enabled: false`, and `email.preview_only: true`; fails closed on source errors, failed sources, warnings, or incomplete runs; preserves the last good live report when no articles changed; resumes an interrupted export/deploy; and verifies the live run ID after Vercel deploy. Its state and logs live under `.radar-data/weekly-publish/`.
+
+`install-weekly-publish-task.ps1` prepares a Sunday 6:00 PM local-time task with `StartWhenAvailable` and bounded retries. It defaults to preview-only and must be passed `-WhatIfOnly:$false` only after the config, stable route, Vercel link, and local machine schedule are approved.
 
 Dry fixture smoke example:
 
@@ -199,4 +209,4 @@ Keep target swaps config-only whenever possible:
 
 ## Future migration reference only
 
-Cloud and container notes live in `docs/DEPLOYMENT.md` and `docs/MIGRATION_LOCAL_TO_CLOUD.md` as **future migration reference only**. They are not part of the current pilot. Do not run Docker builds, Render/GCP/Vercel setup, cloud schedulers, or any cloud deployment commands for this pilot.
+Cloud worker and container notes live in `docs/DEPLOYMENT.md` and `docs/MIGRATION_LOCAL_TO_CLOUD.md` as **future migration reference only**. The approved pilot still runs discovery and Hermes locally; Vercel hosts only the generated static review pages. Do not move the crawler, Hermes worker, SQLite state, or scheduler into cloud infrastructure without a separate migration decision.

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
 import typer
@@ -99,6 +101,23 @@ def state_audit(config: str = "config.v0.2.example.yaml"):
     typer.echo(json.dumps(do_state_audit(cfg(config)), indent=2))
 
 
+@app.command("publish-preflight")
+def publish_preflight(config: str = "config.pilot.local.yaml"):
+    c = cfg(config, ensure_dirs=False)
+    safe = c.dry_run and not c.email.enabled and c.email.preview_only
+    payload = {
+        "ok": safe,
+        "dry_run": c.dry_run,
+        "email_enabled": c.email.enabled,
+        "email_preview_only": c.email.preview_only,
+        "hermes_enabled": c.hermes.enabled,
+        "source_count": len(c.sources),
+    }
+    typer.echo(json.dumps(payload, indent=2))
+    if not safe:
+        raise typer.Exit(2)
+
+
 @app.command()
 def backup(config: str = "config.v0.2.example.yaml"):
     print({"backup": str(do_backup(cfg(config)))})
@@ -123,12 +142,16 @@ def export_report_site(
     run_id: str = typer.Option(..., "--run-id", help="Existing run/report ID to export"),
     output_dir: str = typer.Option(".radar-data/site-export", "--output-dir", help="Static site export root"),
     base_url: str | None = typer.Option(None, "--base-url", help="Optional hosted base URL for suggested report link"),
+    route_name: str | None = typer.Option(None, "--route-name", help="Stable public route segment; defaults to the run ID"),
     overwrite: bool = typer.Option(False, "--overwrite", help="Allow replacing files in an existing export folder"),
 ):
     c = cfg(config)
     report_dir, digest = load_existing_report(c, run_id)
     export_root = Path(output_dir)
-    destination = export_root / "reports" / run_id
+    route_segment = route_name or run_id
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", route_segment):
+        raise typer.BadParameter("Route name must be a single safe URL segment containing only letters, numbers, dot, underscore, or hyphen.")
+    destination = export_root / "reports" / route_segment
     if destination.exists() and any(destination.iterdir()) and not overwrite:
         typer.echo(
             json.dumps(
@@ -157,17 +180,19 @@ def export_report_site(
         if source.exists():
             shutil.copy2(source, destination / target_name)
             copied.append(target_name)
-    route = f"/reports/{run_id}/"
+    route = f"/reports/{route_segment}/"
     hosted_url = None
     if base_url:
         hosted_url = base_url.rstrip("/") + route
     metadata = {
         "status": "exported",
         "run_id": run_id,
+        "route_name": route_segment,
+        "exported_at": datetime.now(timezone.utc).isoformat(),
         "article_count": digest.get("article_count", 0),
         "source_error_count": digest.get("source_error_count", 0),
-        "source_report_dir": str(report_dir),
-        "destination": str(destination),
+        "source_report_dir": f"reports/{run_id}",
+        "destination": route,
         "route": route,
         "hosted_url": hosted_url,
         "files": copied + ["report-site.json"],

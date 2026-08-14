@@ -135,7 +135,7 @@
         <h1>Client review workspace</h1>
         <p>Current editorial concepts, delivery preview, and source-analysis report.</p>
       </div>
-      <div class="build">Production build 95da9c6</div>
+      <div class="build" id="latest-report-status" aria-live="polite">Checking latest report...</div>
     </section>
     <section class="workspace" aria-label="RadarWire review resources">
       <article class="primary">
@@ -156,8 +156,8 @@
         <article class="resource report">
           <div class="kicker">Analysis</div>
           <h2>Competitor Content Radar</h2>
-          <p>Interactive source report with 38 analyzed articles, filters, themes, and drill-down details.</p>
-          <a href="https://site-export-preview.vercel.app/reports/95a0837f9c83-polished-preview/">Open radar report</a>
+          <p id="radar-summary">Interactive source report with current competitor analysis, filters, themes, and drill-down details.</p>
+          <a href="https://site-export-preview.vercel.app/reports/1099fire-radar/">Open radar report</a>
         </article>
         <article class="resource email">
           <div class="kicker">Delivery</div>
@@ -173,5 +173,29 @@
       </div>
     </section>
   </main>
+  <script>
+    (() => {
+      const metadataUrl = "https://site-export-preview.vercel.app/reports/1099fire-radar/report-site.json";
+      const status = document.getElementById("latest-report-status");
+      const summary = document.getElementById("radar-summary");
+      fetch(metadataUrl, { cache: "no-store" })
+        .then((response) => {
+          if (!response.ok) throw new Error("Report metadata unavailable");
+          return response.json();
+        })
+        .then((report) => {
+          const count = Number(report.article_count || 0);
+          const published = new Date(report.exported_at);
+          const dateLabel = Number.isNaN(published.getTime())
+            ? "Latest report published"
+            : `Published ${published.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
+          status.textContent = `${dateLabel} | ${count} analyzed article${count === 1 ? "" : "s"}`;
+          summary.textContent = `Interactive source report with ${count} analyzed article${count === 1 ? "" : "s"}, filters, themes, and drill-down details.`;
+        })
+        .catch(() => {
+          status.textContent = "Latest published report available";
+        });
+    })();
+  </script>
 </body>
 </html>

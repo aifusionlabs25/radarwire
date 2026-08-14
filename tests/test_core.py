@@ -250,6 +250,50 @@ def test_export_report_site_writes_static_route_without_send_or_deploy(tmp_path)
     assert (destination/'digest_email.html').read_text(encoding='utf-8')=='<html>Email A</html>'
 
 
+def test_export_report_site_can_replace_a_stable_route_without_changing_run_metadata(tmp_path):
+    p=cfg_file(tmp_path)
+    c=load_config(p); _write_report_artifacts(c)
+    export_root=tmp_path/'site-export'
+
+    result=CliRunner().invoke(app, ['export-report-site','--config',str(p),'--run-id','r1','--output-dir',str(export_root),'--route-name','1099fire-radar','--base-url','https://reports.example.com','--overwrite'])
+
+    assert result.exit_code==0, result.output
+    payload=json.loads(result.output)
+    destination=export_root/'reports'/'1099fire-radar'
+    assert payload['run_id']=='r1'
+    assert payload['route_name']=='1099fire-radar'
+    assert payload['route']=='/reports/1099fire-radar/'
+    assert payload['hosted_url']=='https://reports.example.com/reports/1099fire-radar/'
+    assert payload['exported_at'].endswith('+00:00')
+    assert payload['source_report_dir']=='reports/r1'
+    assert payload['destination']=='/reports/1099fire-radar/'
+    assert json.loads((destination/'report-site.json').read_text(encoding='utf-8'))['run_id']=='r1'
+
+
+def test_export_report_site_refuses_unsafe_route_name(tmp_path):
+    p=cfg_file(tmp_path)
+    c=load_config(p); _write_report_artifacts(c)
+
+    result=CliRunner().invoke(app, ['export-report-site','--config',str(p),'--run-id','r1','--output-dir',str(tmp_path/'site-export'),'--route-name','../latest'])
+
+    assert result.exit_code==2
+    assert 'single safe URL segment' in result.output
+
+
+def test_publish_preflight_requires_preview_only_email_disabled_config(tmp_path):
+    p=cfg_file(tmp_path)
+    safe=CliRunner().invoke(app, ['publish-preflight','--config',str(p)])
+    data=yaml.safe_load(Path(p).read_text())
+    data['dry_run']=False
+    Path(p).write_text(yaml.safe_dump(data), encoding='utf-8')
+    unsafe=CliRunner().invoke(app, ['publish-preflight','--config',str(p)])
+
+    assert safe.exit_code==0, safe.output
+    assert json.loads(safe.output)['ok'] is True
+    assert unsafe.exit_code==2
+    assert json.loads(unsafe.output)['ok'] is False
+
+
 def test_export_report_site_refuses_existing_export_without_overwrite(tmp_path):
     p=cfg_file(tmp_path)
     c=load_config(p); _write_report_artifacts(c)
