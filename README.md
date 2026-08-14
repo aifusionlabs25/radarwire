@@ -175,6 +175,14 @@ Review scripts in `scripts/windows`. `install-scheduled-task.ps1` must remain Wh
 
 `install-weekly-publish-task.ps1` prepares a Sunday 6:00 PM local-time task with `StartWhenAvailable` and bounded retries. It defaults to preview-only and must be passed `-WhatIfOnly:$false` only after the config, stable route, Vercel link, and local machine schedule are approved.
 
+### Optional automatic email delivery
+
+Automatic email is a separate post-publish stage and is disabled by default. `configure-weekly-email.ps1` creates a private live-delivery config plus a Windows DPAPI credential envelope under `.radar-data/weekly-publish/`. The app password is encrypted for the current Windows user and is never placed in Git, task arguments, or logs. The configurator does not send email or change Task Scheduler.
+
+When `publish-weekly-report.ps1` is explicitly run with `-EnableEmailDelivery`, it publishes and verifies the hosted report first, loads the DPAPI credential into process-only environment variables, runs `email-delivery-preflight`, and then invokes one idempotent `deliver-report --send`. The preflight refuses placeholder addresses, loopback SMTP, missing credentials, non-TLS SMTP, missing report URLs, empty reports, warnings, and source errors. Delivery state is recorded as `pending_email`, `failed_email`, or `delivered`; retries accept `duplicate_skipped` as proof that an earlier send already completed.
+
+Do not add `-EnableEmailDelivery` to the scheduled task until a localhost capture and one separately approved real SMTP test have both passed. A week with no changed articles preserves the prior hosted report and sends no email.
+
 Dry fixture smoke example:
 
 ```powershell

@@ -18,6 +18,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--timestamp", default=None)
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--port", type=int, default=1025)
+    parser.add_argument("--report-url", default=None)
     return parser.parse_args(argv)
 
 
@@ -29,7 +30,7 @@ def _as_posix(path: Path) -> str:
     return path.as_posix()
 
 
-def prepare_scratch(source_config: Path, run_id: str, scratch_root: Path, timestamp: str | None, host: str, port: int) -> dict:
+def prepare_scratch(source_config: Path, run_id: str, scratch_root: Path, timestamp: str | None, host: str, port: int, report_url: str | None = None) -> dict:
     cfg = yaml.safe_load(source_config.read_text(encoding="utf-8"))
     source_data_dir = Path(cfg["data_dir"])
     source_report_dir = source_data_dir / "reports" / run_id
@@ -65,6 +66,9 @@ def prepare_scratch(source_config: Path, run_id: str, scratch_root: Path, timest
     scratch_cfg["email"]["smtp_host"] = host
     scratch_cfg["email"]["smtp_port"] = port
     scratch_cfg["email"]["use_tls"] = False
+    scratch_cfg["email"]["attach_markdown"] = False
+    if report_url:
+        scratch_cfg["email"]["report_url"] = report_url
     scratch_config_path.write_text(yaml.safe_dump(scratch_cfg, sort_keys=False), encoding="utf-8")
 
     return {
@@ -85,7 +89,7 @@ def prepare_scratch(source_config: Path, run_id: str, scratch_root: Path, timest
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
     try:
-        result = prepare_scratch(args.source_config, args.run_id, args.scratch_root, args.timestamp, args.host, args.port)
+        result = prepare_scratch(args.source_config, args.run_id, args.scratch_root, args.timestamp, args.host, args.port, args.report_url)
     except Exception as exc:
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1

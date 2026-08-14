@@ -6,6 +6,7 @@ param(
     [string]$HostName = "127.0.0.1",
     [int]$Port = 1025,
     [int]$TimeoutSeconds = 60,
+    [string]$ReportUrl = "https://site-export-preview.vercel.app/reports/1099fire-radar/",
     [string]$ScratchRoot = ".radar-data",
     [string]$Timestamp = ""
 )
@@ -44,6 +45,23 @@ function Assert-PortFree {
     }
 }
 
+function Start-CleanCaptureProcess {
+    param([string]$FilePath, [string[]]$Arguments)
+    $quoted = $Arguments | ForEach-Object { '"' + ([string]$_).Replace('"', '\"') + '"' }
+    $start = New-Object System.Diagnostics.ProcessStartInfo
+    $start.FileName = $FilePath
+    $start.Arguments = $quoted -join ' '
+    $start.WorkingDirectory = (Get-Location).Path
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $start
+    if (-not $process.Start()) { throw 'Failed to start local SMTP capture helper.' }
+    return $process
+}
+
 if (Test-PortOpen -HostName $HostName -Port $Port) {
     throw "Refusing to start: $HostName`:$Port is already listening"
 }
@@ -54,7 +72,8 @@ $prepArgs = @(
     "--run-id", $RunId,
     "--scratch-root", $ScratchRoot,
     "--host", $HostName,
-    "--port", "$Port"
+    "--port", "$Port",
+    "--report-url", $ReportUrl
 )
 if ($Timestamp -ne "") {
     $prepArgs += @("--timestamp", $Timestamp)
@@ -80,7 +99,7 @@ $captureArgs = @(
     "--timeout-seconds", "$TimeoutSeconds"
 )
 
-$proc = Start-Process -FilePath $Python -ArgumentList $captureArgs -PassThru -NoNewWindow -RedirectStandardOutput $captureLog -RedirectStandardError $captureErr
+$proc = Start-CleanCaptureProcess -FilePath $Python -Arguments $captureArgs
 try {
     Wait-PortOpen -HostName $HostName -Port $Port -Seconds 10
 
@@ -90,9 +109,11 @@ try {
     }
 
     if (-not $proc.WaitForExit(($TimeoutSeconds + 10) * 1000)) {
-        Stop-Process -Id $proc.Id -Force
+        $proc.Kill()
         throw "Capture helper did not exit; stopped child process $($proc.Id)"
     }
+    $proc.StandardOutput.ReadToEnd() | Set-Content -Path $captureLog -Encoding UTF8
+    $proc.StandardError.ReadToEnd() | Set-Content -Path $captureErr -Encoding UTF8
     $proc.Refresh()
     $helperExitCode = $proc.ExitCode
     $captureMeta = Join-Path $outputDir "$RunId.json"
@@ -117,7 +138,7 @@ try {
     Write-Output "capture_err=$captureErr"
 } finally {
     if ($proc -and -not $proc.HasExited) {
-        Stop-Process -Id $proc.Id -Force
+        $proc.Kill()
     }
     Assert-PortFree -HostName $HostName -Port $Port
 }

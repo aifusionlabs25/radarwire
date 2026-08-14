@@ -10,6 +10,9 @@ def test_weekly_publisher_has_clean_gates_resume_and_live_verification():
     assert "source_error_count" in script
     assert "failed_sources" in script
     assert "pending_deploy" in script
+    assert "pending_email" in script
+    assert "failed_email" in script
+    assert "duplicate_skipped" in script
     assert "no_changes" in script
     assert "report-site.json" in script
     assert "Invoke-NativeLogged" in script
@@ -17,8 +20,13 @@ def test_weekly_publisher_has_clean_gates_resume_and_live_verification():
     assert "Invoke-RestMethod" in script
     assert '"${MetadataUrl}?run=$RunId"' in script
     assert '"${ReportUrl}?run=$RunId"' in script
-    assert "deliver-report" not in script
-    assert "--send" not in script
+    assert "EnableEmailDelivery" in script
+    assert "email-delivery-preflight" in script
+    assert "'--expected-report-url', $ReportUrl" in script
+    assert "deliver-report" in script
+    assert "'--send'" in script
+    assert "Import-SmtpCredential" in script
+    assert "Clear-SmtpCredential" in script
 
 
 def test_weekly_task_is_sunday_evening_resumable_headless_publisher():
@@ -31,3 +39,27 @@ def test_weekly_task_is_sunday_evening_resumable_headless_publisher():
     assert "RestartCount 3" in script
     assert "-NonInteractive" in script
     assert "WhatIfOnly = $true" in script
+    assert "EnableEmailDelivery" in script
+    assert "sends_email = [bool]$EnableEmailDelivery" in script
+
+
+def test_weekly_email_configurator_uses_dpapi_and_never_prints_credentials():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "scripts" / "windows" / "configure-weekly-email.ps1").read_text(encoding="utf-8")
+
+    assert "Read-Host 'SMTP app password' -AsSecureString" in script
+    assert "ConvertFrom-SecureString" in script
+    assert "Windows DPAPI current user" in script
+    assert "prepare-email-delivery-config" in script
+    assert "deliver-report" not in script
+    assert "Register-ScheduledTask" not in script
+
+
+def test_local_capture_runner_uses_clean_child_environment():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "scripts" / "run-local-capture-email-test.ps1").read_text(encoding="utf-8")
+
+    assert "Start-CleanCaptureProcess" in script
+    assert "System.Diagnostics.ProcessStartInfo" in script
+    assert "Start-Process" not in script
+    assert '"--report-url", $ReportUrl' in script

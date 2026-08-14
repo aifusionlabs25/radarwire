@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 from pydantic import BaseModel, Field, field_validator
 import os, re, yaml
+from urllib.parse import urlsplit
 EMAIL_RE = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$")
 class HermesConfig(BaseModel):
     profile: str = "amy-radar"; skill: str = "competitor-content-radar"; command: str = "hermes"
@@ -12,12 +13,22 @@ class EmailConfig(BaseModel):
     enabled: bool = False; preview_only: bool = True; smtp_host: str = "localhost"; smtp_port: int = 1025
     smtp_username_env: str = "RADAR_SMTP_USERNAME"; smtp_password_env: str = "RADAR_SMTP_PASSWORD"; use_tls: bool = False
     sender_email: str; recipient_email: str; reply_to_email: str; subject_prefix: str = "[Competitor Radar]"; attach_markdown: bool = True
+    report_url: str | None = None
+    @field_validator("report_url")
+    @classmethod
+    def _https_report_url(cls, value):
+        if value is None or value == "": return None
+        parts=urlsplit(value)
+        if parts.scheme != "https" or not parts.netloc: raise ValueError("email.report_url must be an absolute HTTPS URL")
+        return value
     def invalid_addresses(self) -> list[str]:
         bad=[]
         for name in ("sender_email","recipient_email","reply_to_email"):
             val=getattr(self,name)
             if "#" in val or not EMAIL_RE.match(val): bad.append(f"{name}={val}")
         return bad
+    def placeholder_addresses(self) -> list[str]:
+        return [value for value in (self.sender_email, self.recipient_email, self.reply_to_email) if value.lower().endswith("@example.com")]
     def assert_live_send_allowed(self) -> None:
         bad=self.invalid_addresses()
         if bad: raise ValueError("Invalid email address(es); live send blocked: "+", ".join(bad))

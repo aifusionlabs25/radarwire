@@ -10,7 +10,7 @@ from radar.extract import extract_article, sanitize_text
 from radar.models import make_session_factory, Article, Outbox
 from radar.repository import RadarRepository
 from radar.analysis import HermesCliAnalysisAdapter, DeterministicAnalysisAdapter, AnalysisEnvelope
-from radar.emailer import build_email, deliver_or_preview, deliver_existing_report, email_subject
+from radar.emailer import build_email, deliver_or_preview, deliver_existing_report, email_subject, read_email_artifacts
 from radar.pipeline import run_pipeline, status, backup, restore, fetch_article_with_retries
 
 
@@ -38,6 +38,15 @@ def test_config_blocks_invalid_email_before_smtp(tmp_path):
     assert 'recipient_email=bad#example.com' in c.email.invalid_addresses()
     with pytest.raises(ValueError, match='Invalid email'):
         c.email.assert_live_send_allowed()
+
+
+def test_config_rejects_non_https_report_url(tmp_path):
+    p=cfg_file(tmp_path)
+    data=yaml.safe_load(Path(p).read_text())
+    data['email']['report_url']='http://reports.example.com/latest'
+    Path(p).write_text(yaml.safe_dump(data), encoding='utf-8')
+    with pytest.raises(ValueError, match='absolute HTTPS URL'):
+        load_config(p)
 
 def test_url_normalization_and_scope():
     assert canonicalize_url('https://www.taxjar.com/blog/x?utm_source=chatgpt.com&ok=1')=='https://www.taxjar.com/blog/x?ok=1'
@@ -217,6 +226,122 @@ def test_deliver_existing_report_uses_email_specific_body_when_present(tmp_path)
     assert sent.get_body(preferencelist=('plain',)).get_content().strip()=='Email A'
     assert 'Email A' in sent.get_body(preferencelist=('html',)).get_content()
     assert '<html>A</html>' not in sent.get_body(preferencelist=('html',)).get_content()
+
+
+def test_email_artifacts_add_hosted_report_link_without_mutating_files(tmp_path):
+    c=load_config(cfg_file(tmp_path)); report_dir=_write_report_artifacts(c)
+    original=(report_dir/'digest_email.html').read_text(encoding='utf-8')
+
+    html, text, _md, metadata=read_email_artifacts(report_dir, 'https://reports.example.com/latest/')
+
+    assert 'href="https://reports.example.com/latest/"' in html
+    assert 'Open interactive report' in html
+    assert 'https://reports.example.com/latest/' in text
+    assert metadata['html_artifact']=='digest_email.html'
+    assert (report_dir/'digest_email.html').read_text(encoding='utf-8')==original
+
+
+def test_email_delivery_preflight_fails_closed_then_passes_with_complete_live_config(tmp_path, monkeypatch):
+    p=cfg_file(tmp_path); c=load_config(p); _write_report_artifacts(c)
+    refused=CliRunner().invoke(app, ['email-delivery-preflight','--config',str(p),'--run-id','r1'])
+    data=yaml.safe_load(Path(p).read_text())
+    data['dry_run']=False
+    data['email'].update({
+        'enabled': True,
+        'preview_only': False,
+        'smtp_host': 'smtp.example.net',
+        'smtp_port': 587,
+        'use_tls': True,
+        'sender_email': 'sender@radar.test',
+        'recipient_email': 'recipient@client.test',
+        'reply_to_email': 'reply@radar.test',
+        'report_url': 'https://reports.example.net/latest/',
+        'attach_markdown': False,
+    })
+    Path(p).write_text(yaml.safe_dump(data), encoding='utf-8')
+    monkeypatch.setenv('RADAR_SMTP_USERNAME','smtp-user')
+    monkeypatch.setenv('RADAR_SMTP_PASSWORD','smtp-password')
+    mismatched=CliRunner().invoke(app, [
+        'email-delivery-preflight','--config',str(p),'--run-id','r1',
+        '--expected-report-url','https://reports.example.net/stale/',
+    ])
+    accepted=CliRunner().invoke(app, ['email-delivery-preflight','--config',str(p),'--run-id','r1'])
+
+    assert refused.exit_code==2
+    assert json.loads(refused.output)['ok'] is False
+    assert mismatched.exit_code==2
+    assert json.loads(mismatched.output)['report_url_matches_expected'] is False
+    assert accepted.exit_code==0, accepted.output
+    payload=json.loads(accepted.output)
+    assert payload['ok'] is True
+    assert payload['sends_email'] is False
+    assert payload['attach_markdown'] is False
+    assert payload['smtp_port_allowed'] is True
+    assert payload['report_url_matches_expected'] is True
+
+
+def test_prepare_email_delivery_config_is_live_capable_but_does_not_send_or_overwrite(tmp_path):
+    source=cfg_file(tmp_path)
+    data=yaml.safe_load(Path(source).read_text())
+    data['email'].update({
+        'sender_email': 'sender@radar.test',
+        'recipient_email': 'recipient@client.test',
+        'reply_to_email': 'reply@radar.test',
+    })
+    Path(source).write_text(yaml.safe_dump(data), encoding='utf-8')
+    output=tmp_path/'private'/'delivery.yaml'
+    args=['prepare-email-delivery-config','--source-config',str(source),'--output-config',str(output),'--report-url','https://reports.example.net/latest/']
+
+    first=CliRunner().invoke(app,args)
+    second=CliRunner().invoke(app,args)
+
+    assert first.exit_code==0, first.output
+    payload=json.loads(first.output)
+    assert payload['live_capable'] is True
+    assert payload['credentials_written'] is False
+    assert payload['sends_email'] is False
+    prepared=yaml.safe_load(output.read_text(encoding='utf-8'))
+    assert prepared['dry_run'] is False
+    assert prepared['email']['enabled'] is True
+    assert prepared['email']['preview_only'] is False
+    assert prepared['email']['use_tls'] is True
+    assert prepared['email']['attach_markdown'] is False
+    assert second.exit_code==2
+    assert json.loads(second.output)['status']=='refused_existing_config'
+
+
+def test_prepare_email_delivery_config_refuses_placeholder_addresses(tmp_path):
+    source=cfg_file(tmp_path)
+    result=CliRunner().invoke(app,[
+        'prepare-email-delivery-config',
+        '--source-config',str(source),
+        '--output-config',str(tmp_path/'delivery.yaml'),
+        '--report-url','https://reports.example.net/latest/',
+    ])
+
+    assert result.exit_code==2
+    assert json.loads(result.output)['status']=='refused_addresses'
+    assert not (tmp_path/'delivery.yaml').exists()
+
+
+def test_prepare_email_delivery_config_accepts_explicit_reviewed_address_overrides(tmp_path):
+    source=cfg_file(tmp_path)
+    output=tmp_path/'delivery.yaml'
+    result=CliRunner().invoke(app,[
+        'prepare-email-delivery-config',
+        '--source-config',str(source),
+        '--output-config',str(output),
+        '--report-url','https://reports.example.net/latest/',
+        '--sender-email','sender@radar.test',
+        '--recipient-email','recipient@client.test',
+        '--reply-to-email','reply@radar.test',
+    ])
+
+    assert result.exit_code==0, result.output
+    prepared=yaml.safe_load(output.read_text(encoding='utf-8'))
+    assert prepared['email']['sender_email']=='sender@radar.test'
+    assert prepared['email']['recipient_email']=='recipient@client.test'
+    assert prepared['email']['reply_to_email']=='reply@radar.test'
 
 
 def test_deliver_report_command_does_not_invoke_discovery_fetch_or_hermes(tmp_path, monkeypatch):

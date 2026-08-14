@@ -58,6 +58,7 @@ def test_prepare_local_capture_scratch_uses_fresh_unsent_workspace_even_when_sou
     assert (Path(scratch_cfg["data_dir"]) / "reports" / "run-1" / "digest.json").exists()
     scratch_db = Path(scratch_cfg["database_url"].replace("sqlite:///", ""))
     assert not scratch_db.exists()
+    assert scratch_cfg["email"]["attach_markdown"] is False
 
 
 def test_prepare_local_capture_scratch_fails_before_helper_when_report_missing(tmp_path):

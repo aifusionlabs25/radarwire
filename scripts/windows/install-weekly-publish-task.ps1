@@ -7,6 +7,9 @@ param(
   [string]$SiteRoot = "$ProjectRoot\.radar-data\site-export-preview",
   [string]$RouteName = 'latest',
   [string]$HostedBaseUrl = 'https://site-export-preview.vercel.app',
+  [string]$DeliveryConfigPath = "$ProjectRoot\.radar-data\weekly-publish\email-delivery.yaml",
+  [string]$CredentialPath = "$ProjectRoot\.radar-data\weekly-publish\smtp-credential.dpapi.json",
+  [switch]$EnableEmailDelivery,
   [bool]$WhatIfOnly = $true
 )
 $ErrorActionPreference = 'Stop'
@@ -28,6 +31,10 @@ $ActionArguments = @(
   '-HostedBaseUrl', "`"$HostedBaseUrl`""
 ) -join ' '
 
+if ($EnableEmailDelivery) {
+  $ActionArguments += " -DeliveryConfigPath `"$DeliveryConfigPath`" -CredentialPath `"$CredentialPath`" -EnableEmailDelivery"
+}
+
 if ($WhatIfOnly) {
   [ordered]@{
     status = 'prepared_only'
@@ -37,9 +44,15 @@ if ($WhatIfOnly) {
     arguments = $ActionArguments
     start_when_available = $true
     restart_count = 3
+    sends_email = [bool]$EnableEmailDelivery
     registered = $false
   } | ConvertTo-Json -Depth 4
   exit 0
+}
+
+if ($EnableEmailDelivery) {
+  if (-not (Test-Path $DeliveryConfigPath)) { throw "Delivery config not found: $DeliveryConfigPath" }
+  if (-not (Test-Path $CredentialPath)) { throw "Encrypted SMTP credential not found: $CredentialPath" }
 }
 
 $Action = New-ScheduledTaskAction -Execute 'PowerShell.exe' -Argument $ActionArguments -WorkingDirectory $ProjectRoot

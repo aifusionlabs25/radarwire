@@ -6,7 +6,10 @@ param(
   [string]$SiteRoot = "$ProjectRoot\.radar-data\site-export-preview",
   [string]$RouteName = 'latest',
   [string]$HostedBaseUrl = 'https://site-export-preview.vercel.app',
+  [string]$DeliveryConfigPath = "$ProjectRoot\.radar-data\weekly-publish\email-delivery.yaml",
+  [string]$CredentialPath = "$ProjectRoot\.radar-data\weekly-publish\smtp-credential.dpapi.json",
   [string]$RunId,
+  [switch]$EnableEmailDelivery,
   [switch]$NoDeploy,
   [switch]$ForceNewScan,
   [switch]$PlanOnly
@@ -51,9 +54,42 @@ function Invoke-NativeLogged([string]$Executable, [string[]]$Arguments, [string]
   }
 }
 
+function Import-SmtpCredential([string]$Path) {
+  $Envelope = Get-Content -Raw $Path | ConvertFrom-Json
+  if ($Envelope.version -ne 1 -or $Envelope.protection -ne 'Windows DPAPI current user') {
+    throw 'Unsupported SMTP credential envelope.'
+  }
+  if ($Envelope.username_env -ne 'RADAR_SMTP_USERNAME' -or $Envelope.password_env -ne 'RADAR_SMTP_PASSWORD') {
+    throw 'Unexpected SMTP credential environment variable names.'
+  }
+  $SecurePassword = ConvertTo-SecureString $Envelope.password_dpapi
+  $Pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePassword)
+  try {
+    $PlainPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($Pointer)
+    [Environment]::SetEnvironmentVariable($Envelope.username_env, [string]$Envelope.username, 'Process')
+    [Environment]::SetEnvironmentVariable($Envelope.password_env, $PlainPassword, 'Process')
+  } catch {
+    [Environment]::SetEnvironmentVariable('RADAR_SMTP_USERNAME', $null, 'Process')
+    [Environment]::SetEnvironmentVariable('RADAR_SMTP_PASSWORD', $null, 'Process')
+    throw
+  } finally {
+    if ($Pointer -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($Pointer) }
+    Remove-Variable PlainPassword, SecurePassword -ErrorAction SilentlyContinue
+  }
+  return @([string]$Envelope.username_env, [string]$Envelope.password_env)
+}
+
+function Clear-SmtpCredential([string[]]$Names) {
+  foreach ($Name in $Names) {
+    if ($Name) { [Environment]::SetEnvironmentVariable($Name, $null, 'Process') }
+  }
+}
+
 $ProjectRoot = (Resolve-Path $ProjectRoot).Path
 if (-not [IO.Path]::IsPathRooted($ConfigPath)) { $ConfigPath = Join-Path $ProjectRoot $ConfigPath }
 if (-not [IO.Path]::IsPathRooted($SiteRoot)) { $SiteRoot = Join-Path $ProjectRoot $SiteRoot }
+if (-not [IO.Path]::IsPathRooted($DeliveryConfigPath)) { $DeliveryConfigPath = Join-Path $ProjectRoot $DeliveryConfigPath }
+if (-not [IO.Path]::IsPathRooted($CredentialPath)) { $CredentialPath = Join-Path $ProjectRoot $CredentialPath }
 if (-not (Test-Path $ConfigPath)) { throw "Config not found: $ConfigPath" }
 if ($RouteName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$') { throw 'RouteName must be one safe URL segment.' }
 
@@ -75,7 +111,9 @@ if ($PlanOnly) {
     route_name = $RouteName
     report_url = $ReportUrl
     deploys = -not $NoDeploy
-    sends_email = $false
+    sends_email = [bool]$EnableEmailDelivery
+    delivery_config_path = if ($EnableEmailDelivery) { $DeliveryConfigPath } else { $null }
+    credential_path = if ($EnableEmailDelivery) { $CredentialPath } else { $null }
   } | ConvertTo-Json
   exit 0
 }
@@ -84,12 +122,16 @@ New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $env:PYTHONPATH = Join-Path $ProjectRoot 'src'
 $Preflight = Invoke-RadarJson @('-m', 'radar.cli', 'publish-preflight', '--config', $ConfigPath)
 if (-not $Preflight.ok) { throw 'Publish preflight refused this config.' }
+if ($EnableEmailDelivery) {
+  if (-not (Test-Path $DeliveryConfigPath)) { throw "Delivery config not found: $DeliveryConfigPath" }
+  if (-not (Test-Path $CredentialPath)) { throw "Encrypted SMTP credential not found: $CredentialPath" }
+}
 
 $PreviousState = $null
 if (Test-Path $StatePath) {
   try { $PreviousState = Get-Content -Raw $StatePath | ConvertFrom-Json } catch { $PreviousState = $null }
 }
-$ResumableStatuses = @('pending_export', 'pending_deploy', 'failed_export', 'failed_deploy', 'failed_verify')
+$ResumableStatuses = @('pending_export', 'pending_deploy', 'failed_export', 'failed_deploy', 'failed_verify', 'pending_email', 'failed_email')
 if (-not $RunId -and -not $ForceNewScan -and $PreviousState -and $PreviousState.status -in $ResumableStatuses) {
   $RunId = [string]$PreviousState.run_id
 }
@@ -172,8 +214,30 @@ try {
     throw "Live verification failed for run $RunId."
   }
 
-  Save-PublishState @{ status = 'published'; run_id = $RunId; article_count = [int]$RemoteMetadata.article_count; exported_at = $RemoteMetadata.exported_at; published_at = [DateTime]::UtcNow.ToString('o'); log_path = $LogPath; report_url = $ReportUrl }
-  Write-Host "Published and verified run $RunId at $ReportUrl"
+  $PublishedAt = [DateTime]::UtcNow.ToString('o')
+  if (-not $EnableEmailDelivery) {
+    Save-PublishState @{ status = 'published'; run_id = $RunId; article_count = [int]$RemoteMetadata.article_count; exported_at = $RemoteMetadata.exported_at; published_at = $PublishedAt; log_path = $LogPath; report_url = $ReportUrl }
+    Write-Host "Published and verified run $RunId at $ReportUrl"
+    exit 0
+  }
+
+  Save-PublishState @{ status = 'pending_email'; run_id = $RunId; article_count = [int]$RemoteMetadata.article_count; exported_at = $RemoteMetadata.exported_at; published_at = $PublishedAt; log_path = $LogPath; report_url = $ReportUrl }
+  $CredentialEnvNames = @()
+  try {
+    $CredentialEnvNames = Import-SmtpCredential $CredentialPath
+    $EmailPreflight = Invoke-RadarJson @('-m', 'radar.cli', 'email-delivery-preflight', '--config', $DeliveryConfigPath, '--run-id', $RunId, '--expected-report-url', $ReportUrl)
+    if (-not $EmailPreflight.ok -or $EmailPreflight.run_id -ne $RunId) { throw 'Automatic email delivery preflight refused this run.' }
+    $DeliveryResult = Invoke-RadarJson @('-m', 'radar.cli', 'deliver-report', '--config', $DeliveryConfigPath, '--run-id', $RunId, '--send')
+    $DeliveryStatus = [string]$DeliveryResult.delivery.status
+    if ($DeliveryStatus -notin @('sent', 'duplicate_skipped')) { throw "Unexpected delivery status: $DeliveryStatus" }
+    Save-PublishState @{ status = 'delivered'; run_id = $RunId; article_count = [int]$RemoteMetadata.article_count; exported_at = $RemoteMetadata.exported_at; published_at = $PublishedAt; delivered_at = [DateTime]::UtcNow.ToString('o'); delivery_status = $DeliveryStatus; log_path = $LogPath; report_url = $ReportUrl }
+    Write-Host "Published, verified, and delivered run $RunId."
+  } catch {
+    Save-PublishState @{ status = 'failed_email'; run_id = $RunId; article_count = [int]$RemoteMetadata.article_count; exported_at = $RemoteMetadata.exported_at; published_at = $PublishedAt; log_path = $LogPath; report_url = $ReportUrl; error = $_.Exception.Message }
+    throw
+  } finally {
+    Clear-SmtpCredential $CredentialEnvNames
+  }
 } finally {
   Pop-Location
 }

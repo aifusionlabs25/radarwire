@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import html as html_lib
 import json
 import os
 import smtplib
@@ -81,7 +82,28 @@ def build_email(email_cfg, subject: str, html: str, text: str, md: str | None = 
     return msg
 
 
-def read_email_artifacts(report_dir: Path) -> tuple[str, str, str | None, dict]:
+def _add_report_link(html: str, text: str, report_url: str | None) -> tuple[str, str]:
+    if not report_url:
+        return html, text
+    safe_url = html_lib.escape(report_url, quote=True)
+    cta = (
+        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:20px 0 4px;">'
+        '<tr><td align="center">'
+        f'<a href="{safe_url}" style="display:inline-block;background:#008a92;color:#ffffff;'
+        'font-weight:800;text-decoration:none;padding:12px 18px;border-radius:6px;">Open interactive report</a>'
+        '</td></tr></table>'
+    )
+    if "</main>" in html:
+        html = html.replace("</main>", cta + "</main>", 1)
+    elif "</body>" in html:
+        html = html.replace("</body>", cta + "</body>", 1)
+    else:
+        html += cta
+    text = text.rstrip() + f"\n\nOpen the interactive report:\n{report_url}\n"
+    return html, text
+
+
+def read_email_artifacts(report_dir: Path, report_url: str | None = None) -> tuple[str, str, str | None, dict]:
     html_path = report_dir / "digest_email.html"
     text_path = report_dir / "digest_email.txt"
     if not html_path.exists():
@@ -96,6 +118,7 @@ def read_email_artifacts(report_dir: Path) -> tuple[str, str, str | None, dict]:
     }
     html = html_path.read_text(encoding="utf-8")
     text = text_path.read_text(encoding="utf-8")
+    html, text = _add_report_link(html, text, report_url)
     md = md_path.read_text(encoding="utf-8") if md_path.exists() else None
     return html, text, md, metadata
 
@@ -123,6 +146,7 @@ def delivery_preflight(cfg, run_id: str, report_dir: Path, digest: dict) -> dict
         "smtp_username_env_set": bool(os.getenv(cfg.email.smtp_username_env)) if cfg.email.smtp_username_env else False,
         "smtp_password_env": cfg.email.smtp_password_env,
         "smtp_password_env_set": bool(os.getenv(cfg.email.smtp_password_env)) if cfg.email.smtp_password_env else False,
+        "report_url": cfg.email.report_url,
     }
 
 
@@ -150,7 +174,7 @@ def deliver_or_preview(repo, cfg, run_id: str, report_dir: Path, digest: dict, p
     if not created and outbox.status == "sent":
         return {"status": "duplicate_skipped", "message_key": key}
 
-    html, text, md, artifact_metadata = read_email_artifacts(report_dir)
+    html, text, md, artifact_metadata = read_email_artifacts(report_dir, cfg.email.report_url)
     msg = build_email(cfg.email, subject, html, text, md)
 
     if cfg.dry_run or not cfg.email.enabled or cfg.email.preview_only:

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import typer
+import yaml
 from rich import print
 
 from .config import AppConfig, load_config
@@ -118,6 +119,140 @@ def publish_preflight(config: str = "config.pilot.local.yaml"):
         raise typer.Exit(2)
 
 
+@app.command("email-delivery-preflight")
+def email_delivery_preflight(
+    config: str = "config.pilot.local.yaml",
+    run_id: str = typer.Option(..., "--run-id", help="Existing clean run/report ID to validate for automatic delivery"),
+    expected_report_url: str | None = typer.Option(None, "--expected-report-url", help="Require the configured report link to match the verified published route"),
+    allow_local_smtp: bool = typer.Option(False, "--allow-local-smtp", help="Permit loopback SMTP only for an explicit local-capture test"),
+):
+    c = cfg(config, ensure_dirs=False)
+    _report_dir, digest = load_existing_report(c, run_id)
+    username_set = bool(os.getenv(c.email.smtp_username_env)) if c.email.smtp_username_env else False
+    password_set = bool(os.getenv(c.email.smtp_password_env)) if c.email.smtp_password_env else False
+    local_hosts = {"localhost", "127.0.0.1", "::1"}
+    smtp_host_allowed = allow_local_smtp or c.email.smtp_host.lower() not in local_hosts
+    invalid_addresses = c.email.invalid_addresses()
+    placeholder_addresses = c.email.placeholder_addresses()
+    report_url_matches_expected = (
+        expected_report_url is None
+        or (
+            c.email.report_url is not None
+            and c.email.report_url.rstrip("/") == expected_report_url.rstrip("/")
+        )
+    )
+    clean_report = (
+        digest.get("article_count", 0) > 0
+        and digest.get("source_error_count", 0) == 0
+        and not digest.get("failed_sources", [])
+        and not digest.get("has_warnings", False)
+    )
+    live_config = (not c.dry_run) and c.email.enabled and (not c.email.preview_only)
+    ok = all(
+        (
+            live_config,
+            not invalid_addresses,
+            not placeholder_addresses,
+            username_set,
+            password_set,
+            smtp_host_allowed,
+            0 < c.email.smtp_port < 65536,
+            c.email.use_tls,
+            bool(c.email.report_url),
+            report_url_matches_expected,
+            clean_report,
+        )
+    )
+    payload = {
+        "ok": ok,
+        "run_id": run_id,
+        "article_count": digest.get("article_count", 0),
+        "source_error_count": digest.get("source_error_count", 0),
+        "failed_source_count": len(digest.get("failed_sources", [])),
+        "has_warnings": digest.get("has_warnings", False),
+        "live_config": live_config,
+        "invalid_address_count": len(invalid_addresses),
+        "placeholder_address_count": len(placeholder_addresses),
+        "smtp_username_env_set": username_set,
+        "smtp_password_env_set": password_set,
+        "smtp_host_allowed": smtp_host_allowed,
+        "smtp_port_allowed": 0 < c.email.smtp_port < 65536,
+        "smtp_tls_enabled": c.email.use_tls,
+        "report_url_set": bool(c.email.report_url),
+        "report_url_matches_expected": report_url_matches_expected,
+        "attach_markdown": c.email.attach_markdown,
+        "sends_email": False,
+    }
+    typer.echo(json.dumps(payload, indent=2))
+    if not ok:
+        raise typer.Exit(2)
+
+
+@app.command("prepare-email-delivery-config")
+def prepare_email_delivery_config(
+    source_config: str = typer.Option(..., "--source-config", help="Existing reviewed pilot config to copy"),
+    output_config: str = typer.Option(..., "--output-config", help="New local live-delivery config path"),
+    smtp_host: str = typer.Option("smtp.gmail.com", "--smtp-host"),
+    smtp_port: int = typer.Option(587, "--smtp-port"),
+    report_url: str = typer.Option(..., "--report-url", help="Stable HTTPS report URL included in the email"),
+    sender_email: str | None = typer.Option(None, "--sender-email"),
+    recipient_email: str | None = typer.Option(None, "--recipient-email"),
+    reply_to_email: str | None = typer.Option(None, "--reply-to-email"),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Replace an existing delivery config only after review"),
+):
+    source_path = Path(source_config)
+    output_path = Path(output_config)
+    data = yaml.safe_load(source_path.read_text(encoding="utf-8"))
+    email = data.setdefault("email", {})
+    address_overrides = {
+        "sender_email": sender_email,
+        "recipient_email": recipient_email,
+        "reply_to_email": reply_to_email,
+    }
+    for key, value in address_overrides.items():
+        if value:
+            email[key] = value
+    candidate = AppConfig.model_validate(data)
+    if candidate.email.invalid_addresses() or candidate.email.placeholder_addresses():
+        typer.echo(json.dumps({"status": "refused_addresses", "sends_email": False}, indent=2))
+        raise typer.Exit(2)
+    if smtp_host.lower() in {"localhost", "127.0.0.1", "::1"}:
+        raise typer.BadParameter("Automatic delivery config requires a non-loopback SMTP host.")
+    if output_path.exists() and not overwrite:
+        typer.echo(json.dumps({"status": "refused_existing_config", "output_config": str(output_path), "sends_email": False}, indent=2))
+        raise typer.Exit(2)
+
+    data["dry_run"] = False
+    email.update(
+        {
+            "enabled": True,
+            "preview_only": False,
+            "smtp_host": smtp_host,
+            "smtp_port": smtp_port,
+            "smtp_username_env": "RADAR_SMTP_USERNAME",
+            "smtp_password_env": "RADAR_SMTP_PASSWORD",
+            "use_tls": True,
+            "report_url": report_url,
+            "attach_markdown": False,
+        }
+    )
+    AppConfig.model_validate(data)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    typer.echo(
+        json.dumps(
+            {
+                "status": "prepared_live_delivery_config",
+                "output_config": str(output_path),
+                "live_capable": True,
+                "credentials_written": False,
+                "sends_email": False,
+            },
+            indent=2,
+        )
+    )
+
+
 @app.command()
 def backup(config: str = "config.v0.2.example.yaml"):
     print({"backup": str(do_backup(cfg(config)))})
@@ -223,6 +358,8 @@ def deliver_report(
         repo = RadarRepository(s, c.workspace_id)
         result = deliver_existing_report(repo, c, run_id, send=send)
     typer.echo(json.dumps(result, indent=2))
+    if result.get("delivery", {}).get("status") == "failed":
+        raise typer.Exit(1)
 
 
 @app.command("content-studio")

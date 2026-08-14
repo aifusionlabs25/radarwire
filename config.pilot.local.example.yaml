@@ -28,6 +28,7 @@ email:
   reply_to_email: reply@example.com
   subject_prefix: '[Competitor Radar]'
   attach_markdown: true
+  report_url: null
 crawl:
   user_agent: CompetitorContentRadar/0.2 (+operator-configured; respectful dry-run)
   timeout_seconds: 20
