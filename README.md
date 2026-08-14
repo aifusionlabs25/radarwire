@@ -185,6 +185,8 @@ If the delivery config is already prepared and only the Gmail app password needs
 
 When `publish-weekly-report.ps1` is explicitly run with `-EnableEmailDelivery`, it publishes and verifies the hosted report first, loads the DPAPI credential into process-only environment variables, runs `email-delivery-preflight`, and then invokes one idempotent `deliver-report --send`. The preflight refuses placeholder addresses, loopback SMTP, missing credentials, non-TLS SMTP, missing report URLs, empty reports, warnings, and source errors. Delivery state is recorded as `pending_email`, `failed_email`, or `delivered`; retries accept `duplicate_skipped` as proof that an earlier send already completed.
 
+For client-facing scheduling, `-EnableEmailDelivery` also requires `-EditorialReviewDir` and `-EditorialReviewUrl`; the worker verifies the hosted editorial route and uses the editorial preflight and sender. The dense radar email is blocked by default and requires `-AllowRadarDigestEmail`, which is reserved for an explicitly approved internal research recipient.
+
 Do not add `-EnableEmailDelivery` to the scheduled task until a localhost capture and one separately approved real SMTP test have both passed. A week with no changed articles preserves the prior hosted report and sends no email.
 
 Dry fixture smoke example:

@@ -27,6 +27,10 @@ def test_weekly_publisher_has_clean_gates_resume_and_live_verification():
     assert "'--send'" in script
     assert "Import-SmtpCredential" in script
     assert "Clear-SmtpCredential" in script
+    assert "Client-facing automatic email requires EditorialReviewDir" in script
+    assert "editorial-email-preflight" in script
+    assert "deliver-editorial-review" in script
+    assert "AllowRadarDigestEmail" in script
 
 
 def test_weekly_task_is_sunday_evening_resumable_headless_publisher():
@@ -41,6 +45,8 @@ def test_weekly_task_is_sunday_evening_resumable_headless_publisher():
     assert "WhatIfOnly = $true" in script
     assert "EnableEmailDelivery" in script
     assert "sends_email = [bool]$EnableEmailDelivery" in script
+    assert "EditorialReviewDir" in script
+    assert "AllowRadarDigestEmail" in script
 
 
 def test_weekly_email_configurator_uses_dpapi_and_never_prints_credentials():

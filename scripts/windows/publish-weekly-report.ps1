@@ -8,8 +8,11 @@ param(
   [string]$HostedBaseUrl = 'https://site-export-preview.vercel.app',
   [string]$DeliveryConfigPath = "$ProjectRoot\.radar-data\weekly-publish\email-delivery.yaml",
   [string]$CredentialPath = "$ProjectRoot\.radar-data\weekly-publish\smtp-credential.dpapi.json",
+  [string]$EditorialReviewDir,
+  [string]$EditorialReviewUrl,
   [string]$RunId,
   [switch]$EnableEmailDelivery,
+  [switch]$AllowRadarDigestEmail,
   [switch]$NoDeploy,
   [switch]$ForceNewScan,
   [switch]$PlanOnly
@@ -90,6 +93,7 @@ if (-not [IO.Path]::IsPathRooted($ConfigPath)) { $ConfigPath = Join-Path $Projec
 if (-not [IO.Path]::IsPathRooted($SiteRoot)) { $SiteRoot = Join-Path $ProjectRoot $SiteRoot }
 if (-not [IO.Path]::IsPathRooted($DeliveryConfigPath)) { $DeliveryConfigPath = Join-Path $ProjectRoot $DeliveryConfigPath }
 if (-not [IO.Path]::IsPathRooted($CredentialPath)) { $CredentialPath = Join-Path $ProjectRoot $CredentialPath }
+if ($EditorialReviewDir -and -not [IO.Path]::IsPathRooted($EditorialReviewDir)) { $EditorialReviewDir = Join-Path $ProjectRoot $EditorialReviewDir }
 if (-not (Test-Path $ConfigPath)) { throw "Config not found: $ConfigPath" }
 if ($RouteName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$') { throw 'RouteName must be one safe URL segment.' }
 
@@ -112,6 +116,9 @@ if ($PlanOnly) {
     report_url = $ReportUrl
     deploys = -not $NoDeploy
     sends_email = [bool]$EnableEmailDelivery
+    email_mode = if (-not $EnableEmailDelivery) { 'disabled' } elseif ($EditorialReviewDir) { 'editorial_review' } else { 'radar_digest' }
+    editorial_review_dir = if ($EditorialReviewDir) { $EditorialReviewDir } else { $null }
+    editorial_review_url = if ($EditorialReviewUrl) { $EditorialReviewUrl } else { $null }
     delivery_config_path = if ($EnableEmailDelivery) { $DeliveryConfigPath } else { $null }
     credential_path = if ($EnableEmailDelivery) { $CredentialPath } else { $null }
   } | ConvertTo-Json
@@ -125,6 +132,12 @@ if (-not $Preflight.ok) { throw 'Publish preflight refused this config.' }
 if ($EnableEmailDelivery) {
   if (-not (Test-Path $DeliveryConfigPath)) { throw "Delivery config not found: $DeliveryConfigPath" }
   if (-not (Test-Path $CredentialPath)) { throw "Encrypted SMTP credential not found: $CredentialPath" }
+  if ($EditorialReviewDir) {
+    if (-not (Test-Path $EditorialReviewDir)) { throw "Editorial review directory not found: $EditorialReviewDir" }
+    if ($EditorialReviewUrl -notmatch '^https://') { throw 'EditorialReviewUrl must be an absolute HTTPS URL.' }
+  } elseif (-not $AllowRadarDigestEmail) {
+    throw 'Client-facing automatic email requires EditorialReviewDir and EditorialReviewUrl. Use AllowRadarDigestEmail only for an explicitly approved internal research digest.'
+  }
 }
 
 $PreviousState = $null
@@ -225,12 +238,22 @@ try {
   $CredentialEnvNames = @()
   try {
     $CredentialEnvNames = Import-SmtpCredential $CredentialPath
-    $EmailPreflight = Invoke-RadarJson @('-m', 'radar.cli', 'email-delivery-preflight', '--config', $DeliveryConfigPath, '--run-id', $RunId, '--expected-report-url', $ReportUrl)
-    if (-not $EmailPreflight.ok -or $EmailPreflight.run_id -ne $RunId) { throw 'Automatic email delivery preflight refused this run.' }
-    $DeliveryResult = Invoke-RadarJson @('-m', 'radar.cli', 'deliver-report', '--config', $DeliveryConfigPath, '--run-id', $RunId, '--send')
+    if ($EditorialReviewDir) {
+      $EditorialPage = Invoke-WebRequest -Uri $EditorialReviewUrl -Method Get -UseBasicParsing -Headers @{ 'Cache-Control' = 'no-cache' }
+      if ($EditorialPage.StatusCode -ne 200) { throw 'Hosted editorial review route did not return HTTP 200.' }
+      $EmailPreflight = Invoke-RadarJson @('-m', 'radar.cli', 'editorial-email-preflight', '--config', $DeliveryConfigPath, '--review-dir', $EditorialReviewDir, '--expected-review-url', $EditorialReviewUrl)
+      if (-not $EmailPreflight.ok) { throw 'Editorial email delivery preflight refused this package.' }
+      $DeliveryResult = Invoke-RadarJson @('-m', 'radar.cli', 'deliver-editorial-review', '--config', $DeliveryConfigPath, '--review-dir', $EditorialReviewDir, '--send')
+      $EmailMode = 'editorial_review'
+    } else {
+      $EmailPreflight = Invoke-RadarJson @('-m', 'radar.cli', 'email-delivery-preflight', '--config', $DeliveryConfigPath, '--run-id', $RunId, '--expected-report-url', $ReportUrl)
+      if (-not $EmailPreflight.ok -or $EmailPreflight.run_id -ne $RunId) { throw 'Automatic radar digest delivery preflight refused this run.' }
+      $DeliveryResult = Invoke-RadarJson @('-m', 'radar.cli', 'deliver-report', '--config', $DeliveryConfigPath, '--run-id', $RunId, '--send')
+      $EmailMode = 'radar_digest'
+    }
     $DeliveryStatus = [string]$DeliveryResult.delivery.status
     if ($DeliveryStatus -notin @('sent', 'duplicate_skipped')) { throw "Unexpected delivery status: $DeliveryStatus" }
-    Save-PublishState @{ status = 'delivered'; run_id = $RunId; article_count = [int]$RemoteMetadata.article_count; exported_at = $RemoteMetadata.exported_at; published_at = $PublishedAt; delivered_at = [DateTime]::UtcNow.ToString('o'); delivery_status = $DeliveryStatus; log_path = $LogPath; report_url = $ReportUrl }
+    Save-PublishState @{ status = 'delivered'; run_id = $RunId; article_count = [int]$RemoteMetadata.article_count; exported_at = $RemoteMetadata.exported_at; published_at = $PublishedAt; delivered_at = [DateTime]::UtcNow.ToString('o'); delivery_status = $DeliveryStatus; email_mode = $EmailMode; editorial_review_url = $EditorialReviewUrl; log_path = $LogPath; report_url = $ReportUrl }
     Write-Host "Published, verified, and delivered run $RunId."
   } catch {
     Save-PublishState @{ status = 'failed_email'; run_id = $RunId; article_count = [int]$RemoteMetadata.article_count; exported_at = $RemoteMetadata.exported_at; published_at = $PublishedAt; log_path = $LogPath; report_url = $ReportUrl; error = $_.Exception.Message }

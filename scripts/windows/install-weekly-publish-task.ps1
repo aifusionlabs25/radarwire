@@ -9,7 +9,10 @@ param(
   [string]$HostedBaseUrl = 'https://site-export-preview.vercel.app',
   [string]$DeliveryConfigPath = "$ProjectRoot\.radar-data\weekly-publish\email-delivery.yaml",
   [string]$CredentialPath = "$ProjectRoot\.radar-data\weekly-publish\smtp-credential.dpapi.json",
+  [string]$EditorialReviewDir,
+  [string]$EditorialReviewUrl,
   [switch]$EnableEmailDelivery,
+  [switch]$AllowRadarDigestEmail,
   [bool]$WhatIfOnly = $true
 )
 $ErrorActionPreference = 'Stop'
@@ -33,6 +36,11 @@ $ActionArguments = @(
 
 if ($EnableEmailDelivery) {
   $ActionArguments += " -DeliveryConfigPath `"$DeliveryConfigPath`" -CredentialPath `"$CredentialPath`" -EnableEmailDelivery"
+  if ($EditorialReviewDir) {
+    $ActionArguments += " -EditorialReviewDir `"$EditorialReviewDir`" -EditorialReviewUrl `"$EditorialReviewUrl`""
+  } elseif ($AllowRadarDigestEmail) {
+    $ActionArguments += ' -AllowRadarDigestEmail'
+  }
 }
 
 if ($WhatIfOnly) {
@@ -45,6 +53,7 @@ if ($WhatIfOnly) {
     start_when_available = $true
     restart_count = 3
     sends_email = [bool]$EnableEmailDelivery
+    email_mode = if (-not $EnableEmailDelivery) { 'disabled' } elseif ($EditorialReviewDir) { 'editorial_review' } else { 'radar_digest' }
     registered = $false
   } | ConvertTo-Json -Depth 4
   exit 0
@@ -53,6 +62,12 @@ if ($WhatIfOnly) {
 if ($EnableEmailDelivery) {
   if (-not (Test-Path $DeliveryConfigPath)) { throw "Delivery config not found: $DeliveryConfigPath" }
   if (-not (Test-Path $CredentialPath)) { throw "Encrypted SMTP credential not found: $CredentialPath" }
+  if ($EditorialReviewDir) {
+    if (-not (Test-Path $EditorialReviewDir)) { throw "Editorial review directory not found: $EditorialReviewDir" }
+    if ($EditorialReviewUrl -notmatch '^https://') { throw 'EditorialReviewUrl must be an absolute HTTPS URL.' }
+  } elseif (-not $AllowRadarDigestEmail) {
+    throw 'Client-facing scheduled email requires an editorial review directory and hosted URL.'
+  }
 }
 
 $Action = New-ScheduledTaskAction -Execute 'PowerShell.exe' -Argument $ActionArguments -WorkingDirectory $ProjectRoot

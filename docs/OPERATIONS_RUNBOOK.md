@@ -131,7 +131,7 @@ The weekly publication lane is `publish-weekly-report.ps1`. It performs a strict
 3. Run `email-delivery-preflight` against an existing clean run after loading the credential into process-only environment variables. Confirm every boolean is true without displaying credential values.
 4. Run the local SMTP capture harness and inspect the captured `.eml`, including the hosted-report button and plain-text fallback.
 5. Perform exactly one separately approved real SMTP send, then verify the outbox row changed to `sent`, `sent_at` is populated, and a second invocation returns `duplicate_skipped`.
-6. Only after those checks, prepare the task with `-EnableEmailDelivery` and inspect its WhatIf JSON. Registering or replacing the persistent task remains a separate system-level approval.
+6. Only after those checks, prepare the task with `-EnableEmailDelivery`, `-EditorialReviewDir`, and `-EditorialReviewUrl`, then inspect its WhatIf JSON. The worker blocks a client send when the editorial package is missing. Registering or replacing the persistent task remains a separate system-level approval.
 
 For a client expecting blog drafts, deliver the generated editorial review package rather than `digest_email.html`. Verify the hosted review hub first, then run `editorial-email-preflight --expected-review-url <stable-review-url>` and use `deliver-editorial-review` only after operator approval. The competitor radar belongs in `supporting_report_url` as an optional drill-down link.
 
