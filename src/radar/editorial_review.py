@@ -183,20 +183,23 @@ def _article_page(
 
 
 def _index_page(package: dict[str, Any]) -> str:
-    def reading_label(article: dict[str, Any]) -> str:
-        if article.get("full_body"):
-            return f"{html.escape(article['read_time'])} + full guide"
-        return html.escape(article["read_time"])
-
     cards = "".join(
         f"<article class=\"concept-card accent-{article['rank']}\">"
-        f"<a class=\"concept-image\" href=\"{html.escape(article['slug'], quote=True)}.html\">"
+        f"<a class=\"concept-image\" href=\"{html.escape(article['slug'], quote=True)}.html?view=quick\">"
         f"<img src=\"{html.escape(article['hero'], quote=True)}\" alt=\"{html.escape(article['hero_alt'], quote=True)}\"></a>"
         f"<div class=\"concept-body\"><div class=\"eyebrow\">Concept {article['rank']} / {html.escape(article['label'])}</div>"
-        f"<h2><a href=\"{html.escape(article['slug'], quote=True)}.html\">{html.escape(article['title'])}</a></h2>"
-        f"<p>{html.escape(article['dek'])}</p><div class=\"concept-footer\"><span>{reading_label(article)}</span>"
-        f"<a href=\"{html.escape(article['slug'], quote=True)}.html\">Review concept <span aria-hidden=\"true\">&rarr;</span></a></div></div></article>"
+        f"<h2><a href=\"{html.escape(article['slug'], quote=True)}.html?view=quick\">{html.escape(article['title'])}</a></h2>"
+        f"<p>{html.escape(article['dek'])}</p><div class=\"concept-actions\">"
+        f"<a class=\"action-primary\" href=\"{html.escape(article['slug'], quote=True)}.html?view=quick\">Quick Read <span>{html.escape(article['read_time'])}</span></a>"
+        f"<a class=\"action-secondary\" href=\"{html.escape(article['slug'], quote=True)}.html?view=full\">Full Guide <span>{html.escape(article.get('full_read_time', 'Complete guide'))}</span></a>"
+        "</div></div></article>"
         for article in package["articles"]
+    )
+    supporting_report_url = package.get("supporting_report_url")
+    supporting_link = (
+        f'<a href="{html.escape(str(supporting_report_url), quote=True)}" target="_blank" rel="noreferrer">Open supporting competitor research <span aria-hidden="true">&rarr;</span></a>'
+        if supporting_report_url
+        else ""
     )
     return f"""<!doctype html>
 <html lang="en">
@@ -213,9 +216,10 @@ def _index_page(package: dict[str, Any]) -> str:
     <nav><a href="https://www.1099fire.com/" target="_blank" rel="noreferrer">1099FIRE.com</a></nav>
   </header>
   <main>
-    <section class="review-intro"><div><div class="eyebrow">Content direction review / {html.escape(package['current_as_of'])}</div><h1>{html.escape(package['package_title'])}</h1><p>{html.escape(package['package_dek'])}</p></div><div class="review-count"><strong>{len(package['articles'])}</strong><span>distinct directions</span></div></section>
+    <section class="review-intro"><div><div class="eyebrow">Weekly content shortlist / {html.escape(package['current_as_of'])}</div><h1>{html.escape(package['package_title'])}</h1><p>{html.escape(package['package_dek'])}</p></div><div class="review-count"><strong>{len(package['articles'])}</strong><span>drafts ready to review</span></div></section>
+    <section class="start-here"><div><span>Start here</span><strong>Choose one direction that feels most useful to your customers.</strong></div><ol><li><b>1</b> Skim the three ideas</li><li><b>2</b> Open a Quick Read</li><li><b>3</b> Reply with your pick</li></ol></section>
     <section class="concept-grid" aria-label="Editorial concepts">{cards}</section>
-    <section class="review-note"><strong>For review, not publication</strong><p>Each concept includes original copy, compliance-reviewed language, SEO framing, commissioned visual mockups, and primary-source notes. Final brand font, logo treatment, and service-language approval remain publication gates.</p></section>
+    <section class="review-note"><strong>For review, not publication</strong><div><p>Each concept includes original copy, compliance-reviewed language, SEO framing, commissioned visual mockups, and primary-source notes. Final brand and service-language approval remain publication gates.</p>{supporting_link}</div></section>
   </main>
   <footer><strong>1099FIRE editorial concept review</strong><span>Educational drafts. Confirm current requirements before publication.</span></footer>
 </body>
@@ -224,46 +228,99 @@ def _index_page(package: dict[str, Any]) -> str:
 
 def _email_preview_page(package: dict[str, Any]) -> str:
     concepts: list[str] = []
+    accents = {1: "#0a8b88", 2: "#d89a17", 3: "#e85d45"}
     for article in package["articles"]:
         hero_url = _review_url(package, article["hero"])
         quick_url = _review_url(package, f"{article['slug']}.html?view=quick")
         full_url = _review_url(package, f"{article['slug']}.html?view=full")
+        accent = accents.get(int(article["rank"]), "#078f24")
         concepts.append(
             '<table class="email-concept" role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-            'style="border-collapse:collapse;border-top:1px solid #d8e1e7;"><tr>'
-            f'<td style="padding:24px 0 18px;width:180px;vertical-align:top;"><img src="{html.escape(hero_url, quote=True)}" '
-            f'alt="{html.escape(article["hero_alt"], quote=True)}" width="164" style="display:block;width:164px;height:104px;object-fit:cover;border:0;"></td>'
-            '<td style="padding:22px 0 18px;vertical-align:top;">'
-            f'<div style="font:700 11px Arial,sans-serif;color:#078f4e;text-transform:uppercase;">Concept {article["rank"]} / {html.escape(article["label"])}</div>'
-            f'<h2 style="margin:7px 0 8px;font:700 23px/1.2 Georgia,serif;color:#15243a;">{html.escape(article["title"])}</h2>'
-            f'<p style="margin:0 0 15px;font:15px/1.5 Arial,sans-serif;color:#5e6b7c;">{html.escape(article["dek"])}</p>'
-            f'<a href="{html.escape(quick_url, quote=True)}" target="_blank" rel="noreferrer" style="display:inline-block;margin:0 8px 6px 0;padding:10px 14px;background:#087b36;color:#fff;text-decoration:none;font:700 13px Arial,sans-serif;border-radius:4px;">Read the 3-minute version</a>'
-            f'<a href="{html.escape(full_url, quote=True)}" target="_blank" rel="noreferrer" style="display:inline-block;margin:0 0 6px;padding:9px 13px;border:1px solid #087b36;color:#087b36;text-decoration:none;font:700 13px Arial,sans-serif;border-radius:4px;">Open the full guide</a>'
+            f'style="margin:0 0 16px;border-collapse:separate;border-spacing:0;border:1px solid #d8e1e7;border-left:5px solid {accent};border-radius:6px;background:#ffffff;"><tr>'
+            f'<td class="concept-image-cell" style="padding:18px;width:174px;vertical-align:top;"><img src="{html.escape(hero_url, quote=True)}" '
+            f'alt="{html.escape(article["hero_alt"], quote=True)}" width="156" style="display:block;width:156px;height:108px;object-fit:cover;border:0;border-radius:4px;"></td>'
+            '<td class="concept-copy-cell" style="padding:18px 18px 18px 0;vertical-align:top;">'
+            f'<div style="font:800 11px Arial,sans-serif;color:{accent};text-transform:uppercase;">Draft {article["rank"]} &nbsp;|&nbsp; {html.escape(article["label"])}</div>'
+            f'<h2 style="margin:7px 0 8px;font:700 22px/1.2 Georgia,serif;color:#15243a;">{html.escape(article["title"])}</h2>'
+            f'<p style="margin:0 0 14px;font:14px/1.5 Arial,sans-serif;color:#5e6b7c;">{html.escape(article["dek"])}</p>'
+            f'<a href="{html.escape(quick_url, quote=True)}" target="_blank" rel="noreferrer" style="display:inline-block;margin:0 7px 6px 0;padding:10px 13px;background:#087b36;color:#fff;text-decoration:none;font:800 13px Arial,sans-serif;border-radius:4px;">Quick Read</a>'
+            f'<a href="{html.escape(full_url, quote=True)}" target="_blank" rel="noreferrer" style="display:inline-block;margin:0 0 6px;padding:9px 12px;border:1px solid #8793a1;color:#15243a;text-decoration:none;font:800 13px Arial,sans-serif;border-radius:4px;">Full Guide</a>'
             '</td></tr></table>'
         )
     index_url = _review_url(package, "index.html")
+    supporting_report_url = package.get("supporting_report_url")
+    supporting_link = (
+        f'<a href="{html.escape(str(supporting_report_url), quote=True)}" target="_blank" rel="noreferrer" style="color:#456276;font-weight:700;text-decoration:underline;">View the supporting competitor radar</a>'
+        if supporting_report_url
+        else ""
+    )
     return f"""<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>1099FIRE weekly editorial review</title></head>
-<body style="margin:0;background:#eef3f2;color:#15243a;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#eef3f2;"><tr><td style="padding:24px 12px;">
-    <table role="presentation" width="680" align="center" cellpadding="0" cellspacing="0" style="width:100%;max-width:680px;margin:0 auto;border-collapse:collapse;background:#fff;">
-      <tr><td style="padding:22px 32px;background:#078f24;color:#fff;">
-        <div style="font:900 30px/1 Arial,sans-serif;">&#10003;1099FIRE</div>
-        <div style="margin:4px 0 0 29px;font:700 11px Arial,sans-serif;">Real People. Reliable Filing.</div>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>1099FIRE weekly content shortlist</title><style>@media(max-width:620px){{.email-shell{{padding:0!important}}.email-card{{border-radius:0!important}}.email-pad{{padding-left:20px!important;padding-right:20px!important}}.concept-image-cell,.concept-copy-cell{{display:block!important;width:auto!important;padding:16px!important}}.concept-image-cell img{{width:100%!important;height:auto!important;max-height:210px!important}}}}</style></head>
+<body style="margin:0;background:#e9f0ee;color:#15243a;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Three blog drafts are ready. Start with a Quick Read and reply with your preferred direction.</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#e9f0ee;"><tr><td class="email-shell" style="padding:28px 12px;">
+    <table class="email-card" role="presentation" width="700" align="center" cellpadding="0" cellspacing="0" style="width:100%;max-width:700px;margin:0 auto;border-collapse:separate;border-spacing:0;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 12px 30px rgba(21,36,58,.10);">
+      <tr><td class="email-pad" style="padding:20px 34px;background:#078f24;color:#fff;">
+        <div style="font:900 28px/1 Arial,sans-serif;">&#10003;1099FIRE</div>
+        <div style="margin:5px 0 0 28px;font:700 10px Arial,sans-serif;">Real People. Reliable Filing.</div>
       </td></tr>
-      <tr><td style="padding:34px 32px 10px;">
-        <div style="font:700 11px Arial,sans-serif;color:#078f4e;text-transform:uppercase;">Weekly editorial review</div>
-        <h1 style="margin:9px 0 12px;font:700 34px/1.08 Georgia,serif;color:#15243a;">Three useful directions for this week</h1>
-        <p style="margin:0 0 20px;font:16px/1.55 Arial,sans-serif;color:#5e6b7c;">Each concept includes a concise version for a fast review and a complete guide when you want the supporting detail.</p>
+      <tr><td class="email-pad" style="padding:34px 34px 28px;background:#153858;color:#fff;">
+        <div style="font:800 11px Arial,sans-serif;color:#9edbd5;text-transform:uppercase;">Weekly content shortlist &nbsp;|&nbsp; {html.escape(package['current_as_of'])}</div>
+        <h1 style="margin:10px 0 12px;font:700 36px/1.08 Georgia,serif;color:#fff;">Three blog drafts ready for your review</h1>
+        <p style="margin:0;font:16px/1.55 Arial,sans-serif;color:#dce8ed;">You do not need to read everything. Start with any Quick Read below, then reply with the direction that feels most useful to your customers.</p>
+      </td></tr>
+      <tr><td class="email-pad" style="padding:22px 34px 6px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:0;background:#fff7df;border:1px solid #ead18a;border-radius:6px;"><tr><td style="padding:15px 17px;font:14px/1.5 Arial,sans-serif;color:#5b4617;"><strong style="color:#15243a;">Start here:</strong>&nbsp; Skim the three ideas &rarr; open one Quick Read &rarr; reply with your favorite.</td></tr></table>
+      </td></tr>
+      <tr><td class="email-pad" style="padding:18px 34px 10px;">
         {''.join(concepts)}
-        <div style="padding:26px 0 16px;text-align:center;"><a href="{html.escape(index_url, quote=True)}" target="_blank" rel="noreferrer" style="display:inline-block;padding:12px 18px;background:#15243a;color:#fff;text-decoration:none;font:700 14px Arial,sans-serif;border-radius:4px;">Review all three concepts</a></div>
+        <div style="padding:12px 0 22px;text-align:center;"><a href="{html.escape(index_url, quote=True)}" target="_blank" rel="noreferrer" style="display:inline-block;padding:13px 19px;background:#15243a;color:#fff;text-decoration:none;font:800 14px Arial,sans-serif;border-radius:4px;">Open the 3-draft review hub</a></div>
       </td></tr>
-      <tr><td style="padding:18px 32px;background:#f4f7f8;font:12px/1.5 Arial,sans-serif;color:#5e6b7c;">Educational drafts for review. Confirm current requirements and approved service language before publication.</td></tr>
+      <tr><td class="email-pad" style="padding:20px 34px;background:#f2f6f6;font:13px/1.55 Arial,sans-serif;color:#5e6b7c;"><strong style="display:block;margin-bottom:5px;color:#15243a;">Want to see why these topics rose to the top?</strong>{supporting_link}<div style="margin-top:14px;padding-top:14px;border-top:1px solid #d8e1e7;font-size:11px;">Drafts for discussion, not publication. Confirm current requirements and approved service language before posting.</div></td></tr>
     </table>
   </td></tr></table>
 </body>
 </html>"""
+
+
+def _email_preview_text(package: dict[str, Any]) -> str:
+    lines = [
+        "1099FIRE WEEKLY CONTENT SHORTLIST",
+        "",
+        "Three blog drafts are ready for review.",
+        "Start here: skim the ideas, open one Quick Read, then reply with your favorite.",
+        "",
+    ]
+    for article in package["articles"]:
+        slug = str(article["slug"])
+        lines.extend(
+            [
+                f"DRAFT {article['rank']}: {article['title']}",
+                str(article["dek"]),
+                f"Quick Read: {_review_url(package, f'{slug}.html?view=quick')}",
+                f"Full Guide: {_review_url(package, f'{slug}.html?view=full')}",
+                "",
+            ]
+        )
+    lines.extend(["Review all three drafts:", _review_url(package, "index.html")])
+    if package.get("supporting_report_url"):
+        lines.extend(["", "Supporting competitor radar:", str(package["supporting_report_url"])])
+    lines.extend(["", "Drafts for discussion, not publication."])
+    return "\n".join(lines) + "\n"
+
+
+def _email_preview_metadata(package: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "delivery_id": package.get("delivery_id"),
+        "subject": package.get("email_subject") or f"{package['client_name']}: {len(package['articles'])} blog drafts ready for review",
+        "concept_count": len(package["articles"]),
+        "review_url": _review_url(package, "index.html"),
+        "supporting_report_url": package.get("supporting_report_url"),
+        "html_artifact": "email-preview.html",
+        "text_artifact": "email-preview.txt",
+        "sends_email": False,
+    }
 
 
 STYLES = """:root{--ink:#15243a;--muted:#5e6b7c;--line:#d8e1e7;--paper:#ffffff;--wash:#f4f7f8;--navy:#153858;--teal:#0a8b88;--coral:#ed6549;--gold:#e7ad2f;--shadow:0 14px 36px rgba(21,36,58,.09)}
@@ -276,6 +333,9 @@ STYLES += """
 :root{--brand-green:#078f24;--brand-green-dark:#087b36;--brand-black:#101820}.site-header{height:72px}.brand{display:inline-flex;align-items:center;text-decoration:none;font-size:inherit}.brand-lockup{display:inline-flex;align-items:center;gap:8px;color:var(--brand-black)}.brand-check{display:inline-flex;align-items:center;justify-content:center;width:30px;height:24px;color:var(--brand-green);font:900 30px/1 Arial,sans-serif}.brand-type{display:flex;flex-direction:column;align-items:flex-start}.brand-name{display:flex;align-items:baseline;font:900 25px/.88 Arial,sans-serif;letter-spacing:0}.brand .brand-name b{color:var(--brand-black)}.brand .brand-fire{color:var(--brand-green)}.brand-type small{margin-top:4px;color:#505b62;font:700 8px/1 Arial,sans-serif;letter-spacing:0}.brand-inverse,.brand-inverse .brand-name b,.brand-inverse .brand-fire,.brand-inverse .brand-check,.brand-inverse .brand-type small{color:#fff}.site-header nav a:hover,.eyebrow,.concept-footer a,.sources summary{color:var(--brand-green-dark)}.review-intro .eyebrow{color:#a7e4ba}.reading-toggle button[aria-pressed="true"]{background:var(--brand-green-dark)}.reading-progress span{background:var(--brand-green)}.article-heading{max-width:1100px;padding:34px 28px 28px}.article-heading h1{font-size:54px;line-height:1.03;margin:10px 0 14px;max-width:1020px}.dek{font-size:18px;max-width:900px}.article-meta{margin-top:18px}.reading-mode-panel{padding-top:18px;padding-bottom:18px}.article-hero{position:relative;height:360px;max-height:none;aspect-ratio:auto}.article-hero img{height:100%;object-fit:cover}.continue-link{position:absolute;left:50%;bottom:16px;display:flex;align-items:center;justify-content:center;width:44px;height:44px;transform:translateX(-50%);border:2px solid #fff;border-radius:50%;background:rgba(16,24,32,.72);color:#fff;text-decoration:none;font:700 24px/1 Arial,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.2)}.continue-link:hover{background:var(--brand-green-dark)}.continue-link:focus-visible{outline:3px solid var(--gold);outline-offset:3px}.article-layout{scroll-margin-top:16px}.aside-cta{border-top:5px solid var(--brand-green);padding-top:16px}.aside-cta a{border-bottom-color:var(--brand-green)}@media(max-width:920px){.article-heading h1{font-size:46px}.article-hero{height:300px}}@media(max-width:620px){.site-header{height:66px}.brand-type small{display:none}.brand-name{font-size:21px}.brand-check{width:25px;font-size:25px}.article-heading{padding:28px 20px 22px}.article-heading h1{font-size:38px}.dek{font-size:17px}.article-meta{gap:8px 16px}.reading-mode-panel{padding:16px 20px}.article-hero{height:220px}.continue-link{bottom:12px;width:38px;height:38px;font-size:20px}}
 """
 STYLES += ".brand .brand-check{color:var(--brand-green)}.brand .brand-inverse .brand-check{color:#fff}\n"
+STYLES += """
+.start-here{padding:22px clamp(20px,6vw,90px);display:flex;align-items:center;justify-content:space-between;gap:30px;border-bottom:1px solid var(--line);background:#fff7df}.start-here>div{display:flex;flex-direction:column}.start-here>div span{font-size:11px;font-weight:800;text-transform:uppercase;color:#8a5d00}.start-here>div strong{font:700 20px/1.3 Georgia,serif}.start-here ol{display:flex;gap:22px;list-style:none;margin:0;padding:0;color:#4f5f70;font-size:13px}.start-here li{display:flex;align-items:center;gap:7px;white-space:nowrap}.start-here li b{display:inline-flex;align-items:center;justify-content:center;width:25px;height:25px;border-radius:50%;background:var(--navy);color:#fff;font-size:12px}.concept-actions{margin-top:auto;padding-top:17px;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:8px}.concept-actions a{min-height:52px;padding:9px 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:5px;text-align:center;text-decoration:none;font-size:13px;font-weight:800}.concept-actions a span{display:block;font-size:10px;font-weight:600}.action-primary{background:var(--brand-green-dark);color:#fff}.action-primary span{color:#dff4e6}.action-secondary{border:1px solid var(--line);color:var(--ink);background:#fff}.action-secondary span{color:var(--muted)}.review-note>div a{display:inline-block;margin-top:12px;color:var(--brand-green-dark);font-weight:800;text-decoration:none;border-bottom:2px solid var(--gold)}@media(max-width:920px){.start-here{align-items:flex-start;flex-direction:column}.start-here ol{width:100%;justify-content:space-between}}@media(max-width:620px){.start-here ol{align-items:flex-start;flex-direction:column;gap:10px}.start-here li{white-space:normal}.concept-actions{grid-template-columns:1fr}}
+"""
 STYLES = STYLES.replace("letter-spacing:.08em", "letter-spacing:0")
 
 
@@ -307,7 +367,13 @@ def build_editorial_review_kit(manifest_path: Path, output_dir: Path, *, overwri
     targets = [output_dir / "index.html", output_dir / "styles.css", output_dir / "review.js"]
     targets += [output_dir / f"{article['slug']}.html" for article in package["articles"]]
     if package.get("email_preview"):
-        targets.append(output_dir / "email-preview.html")
+        targets.extend(
+            [
+                output_dir / "email-preview.html",
+                output_dir / "email-preview.txt",
+                output_dir / "email-preview.json",
+            ]
+        )
     targets.append(output_dir / "review-kit-manifest.json")
     existing = [path.name for path in targets if path.exists()]
     if existing and not overwrite:
@@ -336,6 +402,11 @@ def build_editorial_review_kit(manifest_path: Path, output_dir: Path, *, overwri
     (output_dir / "index.html").write_text(_index_page(package), encoding="utf-8")
     if package.get("email_preview"):
         (output_dir / "email-preview.html").write_text(_email_preview_page(package), encoding="utf-8")
+        (output_dir / "email-preview.txt").write_text(_email_preview_text(package), encoding="utf-8")
+        (output_dir / "email-preview.json").write_text(
+            json.dumps(_email_preview_metadata(package), indent=2),
+            encoding="utf-8",
+        )
     for index, (article, body_pair) in enumerate(zip(package["articles"], bodies, strict=True)):
         body, full_body = body_pair
         previous = package["articles"][index - 1] if index else None
@@ -375,10 +446,18 @@ def validate_editorial_review_kit(manifest_path: Path, output_dir: Path) -> dict
     index = BeautifulSoup(index_path.read_text(encoding="utf-8"), "html.parser")
     if len(index.select(".concept-card")) != len(articles):
         raise EditorialReviewError("Review index card count does not match article count")
+    if (
+        index.select_one(".start-here") is None
+        or len(index.select('.concept-actions a[href*="?view=quick"]')) != len(articles)
+        or len(index.select('.concept-actions a[href*="?view=full"]')) != len(articles)
+    ):
+        raise EditorialReviewError("Review index is missing client orientation or reading actions")
 
     email_links_checked = 0
     if package.get("email_preview"):
         email_path = _safe_file(output_dir / "email-preview.html", output_dir, "email preview")
+        email_text_path = _safe_file(output_dir / "email-preview.txt", output_dir, "email text preview")
+        email_metadata_path = _safe_file(output_dir / "email-preview.json", output_dir, "email preview metadata")
         email_page = BeautifulSoup(email_path.read_text(encoding="utf-8"), "html.parser")
         if len(email_page.select(".email-concept")) != len(articles) or email_page.select_one("script") is not None:
             raise EditorialReviewError("Email preview has an invalid article count or contains JavaScript")
@@ -399,6 +478,16 @@ def validate_editorial_review_kit(manifest_path: Path, output_dir: Path) -> dict
             if source.startswith("https://"):
                 continue
             _safe_file(output_dir / source, output_dir, "email preview image")
+        email_text = email_text_path.read_text(encoding="utf-8")
+        if any(article["title"] not in email_text for article in articles):
+            raise EditorialReviewError("Email text preview is missing an article title")
+        email_metadata = json.loads(email_metadata_path.read_text(encoding="utf-8"))
+        if (
+            email_metadata.get("concept_count") != len(articles)
+            or not email_metadata.get("subject")
+            or email_metadata.get("sends_email") is not False
+        ):
+            raise EditorialReviewError("Email preview metadata is incomplete or unsafe")
 
     images_checked = 0
     links_checked = 0

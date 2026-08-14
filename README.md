@@ -133,6 +133,8 @@ For a dual-length article, set `body` to the concise default Markdown, add `full
 
 Dual-length pages also accept `?view=quick` and `?view=full` so an email can open the intended edition directly. Set `email_preview: true` to generate a static, JavaScript-free `email-preview.html` with one thumbnail, synopsis, and both reading links per concept. Add `review_base_url` only after the review package has an approved hosted URL; otherwise the preview keeps local relative links and sends nothing.
 
+For client delivery, the editorial shortlist is the primary message and the competitor radar is optional supporting research. Set a stable `delivery_id`, absolute `review_base_url`, optional `supporting_report_url`, and reviewed `email_subject` in the editorial manifest. The builder then writes `email-preview.html`, `email-preview.txt`, and `email-preview.json`. Run `editorial-email-preflight` before the separately approved `deliver-editorial-review --send`; the dedicated outbox key prevents a second send for the same delivery ID and recipient. Do not substitute the dense radar digest for this client-facing shortlist.
+
 Run `editorial-review-validate` with the same manifest and output directory before client review. It checks page structure, approved image references, internal and external links, responsive breakpoints, competitor-brand leakage, encoding damage, unresolved verification markers, and the build's side-effect declarations.
 
 ## Interactive report page export

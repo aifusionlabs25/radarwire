@@ -14,7 +14,13 @@ from rich import print
 from .config import AppConfig, load_config
 from .content_studio import BriefSet, ContentStudioError, generate_content_studio, generate_content_studio_drafts
 from .editorial_review import EditorialReviewError, build_editorial_review_kit, validate_editorial_review_kit
-from .emailer import deliver_existing_report, delivery_preflight, load_existing_report
+from .emailer import (
+    deliver_editorial_review,
+    deliver_existing_report,
+    delivery_preflight,
+    editorial_delivery_preflight,
+    load_existing_report,
+)
 from .hermes_install import install as install_hermes
 from .models import make_session_factory
 from .pipeline import backup as do_backup
@@ -28,6 +34,13 @@ app = typer.Typer()
 
 def cfg(path: str | None, *, ensure_dirs: bool = True):
     return load_config(path, ensure_dirs=ensure_dirs)
+
+
+def _review_route_key(url: str) -> str:
+    normalized = url.rstrip("/")
+    if normalized.endswith("/index.html"):
+        normalized = normalized[: -len("/index.html")]
+    return normalized
 
 
 def fixture_config(base_cfg: AppConfig, fixture_data_dir: str | None = None) -> AppConfig:
@@ -357,6 +370,84 @@ def deliver_report(
     with Session.begin() as s:
         repo = RadarRepository(s, c.workspace_id)
         result = deliver_existing_report(repo, c, run_id, send=send)
+    typer.echo(json.dumps(result, indent=2))
+    if result.get("delivery", {}).get("status") == "failed":
+        raise typer.Exit(1)
+
+
+@app.command("editorial-email-preflight")
+def editorial_email_preflight(
+    config: str = "config.v0.2.example.yaml",
+    review_dir: str = typer.Option(..., "--review-dir", help="Generated editorial review-kit directory"),
+    expected_review_url: str | None = typer.Option(None, "--expected-review-url", help="Require the email review link to match the verified hosted route"),
+):
+    c = cfg(config, ensure_dirs=False)
+    preflight = editorial_delivery_preflight(c, Path(review_dir))
+    username_set = bool(os.getenv(c.email.smtp_username_env)) if c.email.smtp_username_env else False
+    password_set = bool(os.getenv(c.email.smtp_password_env)) if c.email.smtp_password_env else False
+    live_config = (not c.dry_run) and c.email.enabled and (not c.email.preview_only)
+    invalid_addresses = c.email.invalid_addresses()
+    placeholder_addresses = c.email.placeholder_addresses()
+    smtp_host_allowed = c.email.smtp_host.lower() not in {"localhost", "127.0.0.1", "::1"}
+    review_url_matches_expected = (
+        expected_review_url is None
+        or _review_route_key(preflight["review_url"]) == _review_route_key(expected_review_url)
+    )
+    ok = all(
+        (
+            live_config,
+            not invalid_addresses,
+            not placeholder_addresses,
+            username_set,
+            password_set,
+            smtp_host_allowed,
+            0 < c.email.smtp_port < 65536,
+            c.email.use_tls,
+            review_url_matches_expected,
+            preflight["concept_count"] > 0,
+        )
+    )
+    payload = {
+        "ok": ok,
+        "delivery_id": preflight["delivery_id"],
+        "concept_count": preflight["concept_count"],
+        "live_config": live_config,
+        "invalid_address_count": len(invalid_addresses),
+        "placeholder_address_count": len(placeholder_addresses),
+        "smtp_username_env_set": username_set,
+        "smtp_password_env_set": password_set,
+        "smtp_host_allowed": smtp_host_allowed,
+        "smtp_port_allowed": 0 < c.email.smtp_port < 65536,
+        "smtp_tls_enabled": c.email.use_tls,
+        "review_url": preflight["review_url"],
+        "review_url_matches_expected": review_url_matches_expected,
+        "supporting_report_url_set": bool(preflight.get("supporting_report_url")),
+        "sends_email": False,
+    }
+    typer.echo(json.dumps(payload, indent=2))
+    if not ok:
+        raise typer.Exit(2)
+
+
+@app.command("deliver-editorial-review")
+def deliver_editorial_review_command(
+    config: str = "config.v0.2.example.yaml",
+    review_dir: str = typer.Option(..., "--review-dir", help="Generated editorial review-kit directory"),
+    send: bool = typer.Option(False, "--send", help="Actually send live email when live config gates pass"),
+):
+    c = cfg(config)
+    live_config = (not c.dry_run) and c.email.enabled and (not c.email.preview_only)
+    if live_config and not send:
+        typer.echo(json.dumps({"status": "refused", "error": "Refusing live-send-capable config without --send"}, indent=2))
+        raise typer.Exit(2)
+    Session, _ = make_session_factory(c.database_url)
+    with Session.begin() as session:
+        result = deliver_editorial_review(
+            RadarRepository(session, c.workspace_id),
+            c,
+            Path(review_dir),
+            send=send,
+        )
     typer.echo(json.dumps(result, indent=2))
     if result.get("delivery", {}).get("status") == "failed":
         raise typer.Exit(1)

@@ -7,6 +7,7 @@ import os
 import smtplib
 from email.message import EmailMessage
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .models import utcnow
 
@@ -198,3 +199,119 @@ def deliver_or_preview(repo, cfg, run_id: str, report_dir: Path, digest: dict, p
     outbox.sent_at = utcnow()
     outbox.provider_response = str(resp)[:500]
     return {"status": "sent", "message_key": key, **artifact_metadata}
+
+
+def editorial_message_key(delivery_id: str, recipient: str) -> str:
+    payload = json.dumps(
+        {"kind": "editorial_review", "delivery_id": delivery_id, "recipient": recipient},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def load_editorial_email(review_dir: Path) -> tuple[str, str, dict, dict]:
+    review_dir = review_dir.resolve()
+    html_path = review_dir / "email-preview.html"
+    text_path = review_dir / "email-preview.txt"
+    metadata_path = review_dir / "email-preview.json"
+    missing = [path.name for path in (html_path, text_path, metadata_path) if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f"missing editorial email artifact(s): {', '.join(missing)}")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    delivery_id = str(metadata.get("delivery_id") or "").strip()
+    subject = str(metadata.get("subject") or "").strip()
+    review_url = str(metadata.get("review_url") or "").strip()
+    parsed_review_url = urlsplit(review_url)
+    if not delivery_id or not subject:
+        raise ValueError("Editorial email metadata requires delivery_id and subject")
+    if parsed_review_url.scheme != "https" or not parsed_review_url.netloc:
+        raise ValueError("Editorial email metadata requires an absolute HTTPS review_url")
+    if metadata.get("concept_count", 0) <= 0:
+        raise ValueError("Editorial email metadata requires at least one concept")
+    artifacts = {
+        "html_artifact": html_path.name,
+        "text_artifact": text_path.name,
+        "metadata_artifact": metadata_path.name,
+    }
+    return (
+        html_path.read_text(encoding="utf-8"),
+        text_path.read_text(encoding="utf-8"),
+        metadata,
+        artifacts,
+    )
+
+
+def editorial_delivery_preflight(cfg, review_dir: Path) -> dict:
+    _html, _text, metadata, artifacts = load_editorial_email(review_dir)
+    return {
+        "from": cfg.email.sender_email,
+        "to": cfg.email.recipient_email,
+        "reply_to": cfg.email.reply_to_email,
+        "subject": metadata["subject"],
+        "delivery_id": metadata["delivery_id"],
+        "concept_count": metadata["concept_count"],
+        "review_url": metadata["review_url"],
+        "supporting_report_url": metadata.get("supporting_report_url"),
+        "review_dir": str(review_dir),
+        "smtp_username_env_set": bool(os.getenv(cfg.email.smtp_username_env)) if cfg.email.smtp_username_env else False,
+        "smtp_password_env_set": bool(os.getenv(cfg.email.smtp_password_env)) if cfg.email.smtp_password_env else False,
+        **artifacts,
+    }
+
+
+def deliver_editorial_review(
+    repo,
+    cfg,
+    review_dir: Path,
+    *,
+    send: bool = False,
+    provider: EmailProvider | None = None,
+) -> dict:
+    html, text, metadata, artifacts = load_editorial_email(review_dir)
+    preflight = editorial_delivery_preflight(cfg, review_dir)
+    live_config = (not cfg.dry_run) and cfg.email.enabled and (not cfg.email.preview_only)
+    if live_config and not send:
+        raise ValueError("Refusing live-send-capable config without --send")
+    if send:
+        if not live_config:
+            raise ValueError("Refusing send unless dry_run=false, email.enabled=true, email.preview_only=false, and --send is present")
+        cfg.email.assert_live_send_allowed()
+
+    key = editorial_message_key(str(metadata["delivery_id"]), cfg.email.recipient_email)
+    subject = str(metadata["subject"])
+    outbox, created = repo.outbox_get_or_create(key, cfg.email.recipient_email, subject)
+    outbox.subject = subject
+    if not created and outbox.status == "sent":
+        return {"preflight": preflight, "delivery": {"status": "duplicate_skipped", "message_key": key}}
+
+    msg = build_email(cfg.email, subject, html, text)
+    if cfg.dry_run or not cfg.email.enabled or cfg.email.preview_only:
+        outbox.status = "preview"
+        outbox.provider_response = f"preview_only_no_smtp; html={artifacts['html_artifact']}; text={artifacts['text_artifact']}"
+        outbox.attempt_count += 1
+        return {"preflight": preflight, "delivery": {"status": "preview", "message_key": key, **artifacts}}
+
+    cfg.email.assert_live_send_allowed()
+    if provider is None:
+        provider = SMTPEmailProvider.from_config(cfg.email)
+    outbox.attempt_count += 1
+    try:
+        response = provider.send(msg)
+    except Exception as exc:
+        outbox.status = "failed"
+        outbox.sent_at = None
+        outbox.provider_response = _safe_provider_error(exc)
+        return {
+            "preflight": preflight,
+            "delivery": {
+                "status": "failed",
+                "message_key": key,
+                "provider_response": outbox.provider_response,
+                **artifacts,
+            },
+        }
+    outbox.status = "sent"
+    outbox.sent_at = utcnow()
+    outbox.provider_response = str(response)[:500]
+    return {"preflight": preflight, "delivery": {"status": "sent", "message_key": key, **artifacts}}

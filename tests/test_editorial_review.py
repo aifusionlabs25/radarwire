@@ -1,8 +1,14 @@
 import json
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import yaml
+from typer.testing import CliRunner
 
+from radar.cli import app
 from radar.editorial_review import EditorialReviewError, build_editorial_review_kit, validate_editorial_review_kit
+from radar.emailer import deliver_editorial_review
 
 
 def package(tmp_path):
@@ -124,7 +130,11 @@ def test_build_editorial_review_kit_supports_short_and_full_reading_modes(tmp_pa
     email_preview = (tmp_path / "email-preview.html").read_text(encoding="utf-8")
     assert "?view=quick" in email_preview
     assert "?view=full" in email_preview
+    assert "Start here" in email_preview
+    assert "3-draft review hub" in email_preview
     assert "<script" not in email_preview
+    assert (tmp_path / "email-preview.txt").is_file()
+    assert (tmp_path / "email-preview.json").is_file()
 
     validation = validate_editorial_review_kit(manifest, tmp_path)
     assert validation["status"] == "ok"
@@ -132,6 +142,151 @@ def test_build_editorial_review_kit_supports_short_and_full_reading_modes(tmp_pa
     assert validation["images_checked"] == 6
     assert validation["email_preview"] is True
     assert validation["email_links_checked"] == 7
+
+
+def test_editorial_email_uses_hosted_draft_links_and_is_idempotent(tmp_path):
+    manifest = package(tmp_path)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data.update(
+        {
+            "email_preview": True,
+            "delivery_id": "run-123-editorial-v1",
+            "review_base_url": "https://reports.example.com/editorial",
+            "supporting_report_url": "https://reports.example.com/radar/",
+            "email_subject": "1099FIRE: 3 blog drafts ready for review",
+        }
+    )
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    build_editorial_review_kit(manifest, tmp_path)
+
+    class Outbox:
+        status = "pending"
+        subject = ""
+        provider_response = None
+        attempt_count = 0
+        sent_at = None
+
+    class Repo:
+        def __init__(self):
+            self.outbox = Outbox()
+            self.created = True
+
+        def outbox_get_or_create(self, *_args):
+            created, self.created = self.created, False
+            return self.outbox, created
+
+    class Provider:
+        def __init__(self):
+            self.calls = 0
+            self.message = None
+
+        def send(self, message):
+            self.calls += 1
+            self.message = message
+            return "sent"
+
+    email = SimpleNamespace(
+        sender_email="sender@radar.test",
+        recipient_email="recipient@client.test",
+        reply_to_email="reply@radar.test",
+        attach_markdown=False,
+        assert_live_send_allowed=lambda: None,
+        smtp_username_env="RADAR_SMTP_USERNAME",
+        smtp_password_env="RADAR_SMTP_PASSWORD",
+    )
+    cfg = SimpleNamespace(dry_run=False, email=email)
+    cfg.email.enabled = True
+    cfg.email.preview_only = False
+    repo = Repo()
+    provider = Provider()
+
+    first = deliver_editorial_review(repo, cfg, tmp_path, send=True, provider=provider)
+    second = deliver_editorial_review(repo, cfg, tmp_path, send=True, provider=provider)
+
+    assert first["delivery"]["status"] == "sent"
+    assert second["delivery"]["status"] == "duplicate_skipped"
+    assert provider.calls == 1
+    assert provider.message["Subject"] == "1099FIRE: 3 blog drafts ready for review"
+    html_part = provider.message.get_body(preferencelist=("html",)).get_content()
+    assert "https://reports.example.com/editorial/article-1.html?view=quick" in html_part
+    assert "https://reports.example.com/radar/" in html_part
+
+
+def test_editorial_email_preflight_requires_matching_hosted_review(tmp_path, monkeypatch):
+    manifest = package(tmp_path)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data.update(
+        {
+            "email_preview": True,
+            "delivery_id": "run-123-editorial-v1",
+            "review_base_url": "https://reports.example.com/editorial",
+            "supporting_report_url": "https://reports.example.com/radar/",
+        }
+    )
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    build_editorial_review_kit(manifest, tmp_path)
+
+    config_data = yaml.safe_load(Path("config.v0.2.example.yaml").read_text(encoding="utf-8"))
+    config_data.update(
+        {
+            "dry_run": False,
+            "data_dir": str(tmp_path / "data"),
+            "database_url": "sqlite:///" + str(tmp_path / "data" / "radar.db").replace("\\", "/"),
+        }
+    )
+    config_data["email"].update(
+        {
+            "enabled": True,
+            "preview_only": False,
+            "smtp_host": "smtp.example.net",
+            "smtp_port": 587,
+            "use_tls": True,
+            "sender_email": "sender@radar.test",
+            "recipient_email": "recipient@client.test",
+            "reply_to_email": "reply@radar.test",
+        }
+    )
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump(config_data), encoding="utf-8")
+    monkeypatch.setenv("RADAR_SMTP_USERNAME", "smtp-user")
+    monkeypatch.setenv("RADAR_SMTP_PASSWORD", "smtp-password")
+
+    runner = CliRunner()
+    accepted = runner.invoke(
+        app,
+        [
+            "editorial-email-preflight",
+            "--config",
+            str(config_path),
+            "--review-dir",
+            str(tmp_path),
+            "--expected-review-url",
+            "https://reports.example.com/editorial/",
+        ],
+    )
+    refused = runner.invoke(
+        app,
+        [
+            "editorial-email-preflight",
+            "--config",
+            str(config_path),
+            "--review-dir",
+            str(tmp_path),
+            "--expected-review-url",
+            "https://reports.example.com/stale/",
+        ],
+    )
+    no_send_flag = runner.invoke(
+        app,
+        ["deliver-editorial-review", "--config", str(config_path), "--review-dir", str(tmp_path)],
+    )
+
+    assert accepted.exit_code == 0, accepted.output
+    assert json.loads(accepted.output)["ok"] is True
+    assert refused.exit_code == 2
+    assert json.loads(refused.output)["review_url_matches_expected"] is False
+    assert no_send_flag.exit_code == 2
+    assert "without --send" in no_send_flag.output
 
 
 def test_build_editorial_review_kit_rejects_unreviewed_marker(tmp_path):

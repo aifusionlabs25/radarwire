@@ -133,6 +133,8 @@ The weekly publication lane is `publish-weekly-report.ps1`. It performs a strict
 5. Perform exactly one separately approved real SMTP send, then verify the outbox row changed to `sent`, `sent_at` is populated, and a second invocation returns `duplicate_skipped`.
 6. Only after those checks, prepare the task with `-EnableEmailDelivery` and inspect its WhatIf JSON. Registering or replacing the persistent task remains a separate system-level approval.
 
+For a client expecting blog drafts, deliver the generated editorial review package rather than `digest_email.html`. Verify the hosted review hub first, then run `editorial-email-preflight --expected-review-url <stable-review-url>` and use `deliver-editorial-review` only after operator approval. The competitor radar belongs in `supporting_report_url` as an optional drill-down link.
+
 The automatic worker sends only after the Vercel route returns the same run ID with zero source errors. If SMTP fails, state remains `failed_email` and the outbox remains retryable. If the process stops after SMTP success, the outbox prevents a second message on retry. No-change runs do not send empty email.
 
 ## Future migration reference only
