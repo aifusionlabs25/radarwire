@@ -15,6 +15,8 @@ def test_weekly_publisher_has_clean_gates_resume_and_live_verification():
     assert "Invoke-NativeLogged" in script
     assert "@('deploy', '--prod', '--yes'" in script
     assert "Invoke-RestMethod" in script
+    assert '"${MetadataUrl}?run=$RunId"' in script
+    assert '"${ReportUrl}?run=$RunId"' in script
     assert "deliver-report" not in script
     assert "--send" not in script
 

@@ -156,8 +156,8 @@ try {
   $Verified = $false
   for ($Attempt = 1; $Attempt -le 8; $Attempt++) {
     try {
-      $RemoteMetadata = Invoke-RestMethod -Uri "$MetadataUrl?run=$RunId" -Method Get -Headers @{ 'Cache-Control' = 'no-cache' }
-      $Page = Invoke-WebRequest -Uri "$ReportUrl?run=$RunId" -Method Get -UseBasicParsing -Headers @{ 'Cache-Control' = 'no-cache' }
+      $RemoteMetadata = Invoke-RestMethod -Uri "${MetadataUrl}?run=$RunId" -Method Get -Headers @{ 'Cache-Control' = 'no-cache' }
+      $Page = Invoke-WebRequest -Uri "${ReportUrl}?run=$RunId" -Method Get -UseBasicParsing -Headers @{ 'Cache-Control' = 'no-cache' }
       if ($Page.StatusCode -eq 200 -and $RemoteMetadata.run_id -eq $RunId -and [int]$RemoteMetadata.source_error_count -eq 0) {
         $Verified = $true
         break
