@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 
 import typer
 from rich import print
 
 from .config import AppConfig, load_config
+from .content_studio import BriefSet, ContentStudioError, generate_content_studio, generate_content_studio_drafts
+from .editorial_review import EditorialReviewError, build_editorial_review_kit, validate_editorial_review_kit
 from .emailer import deliver_existing_report, delivery_preflight, load_existing_report
 from .hermes_install import install as install_hermes
 from .models import make_session_factory
@@ -114,6 +117,67 @@ def report_list(config: str = "config.v0.2.example.yaml"):
     print([str(p) for p in reports])
 
 
+@app.command("export-report-site")
+def export_report_site(
+    config: str = "config.v0.2.example.yaml",
+    run_id: str = typer.Option(..., "--run-id", help="Existing run/report ID to export"),
+    output_dir: str = typer.Option(".radar-data/site-export", "--output-dir", help="Static site export root"),
+    base_url: str | None = typer.Option(None, "--base-url", help="Optional hosted base URL for suggested report link"),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Allow replacing files in an existing export folder"),
+):
+    c = cfg(config)
+    report_dir, digest = load_existing_report(c, run_id)
+    export_root = Path(output_dir)
+    destination = export_root / "reports" / run_id
+    if destination.exists() and any(destination.iterdir()) and not overwrite:
+        typer.echo(
+            json.dumps(
+                {
+                    "status": "refused_existing_export",
+                    "destination": str(destination),
+                    "hint": "Pass --overwrite only after reviewing the existing export.",
+                },
+                indent=2,
+            )
+        )
+        raise typer.Exit(2)
+    destination.mkdir(parents=True, exist_ok=True)
+    copies = {
+        "digest.html": "index.html",
+        "digest.json": "digest.json",
+        "digest.md": "digest.md",
+        "digest.txt": "digest.txt",
+        "digest_email.html": "digest_email.html",
+        "digest_email.txt": "digest_email.txt",
+        "run-summary.json": "run-summary.json",
+    }
+    copied = []
+    for source_name, target_name in copies.items():
+        source = report_dir / source_name
+        if source.exists():
+            shutil.copy2(source, destination / target_name)
+            copied.append(target_name)
+    route = f"/reports/{run_id}/"
+    hosted_url = None
+    if base_url:
+        hosted_url = base_url.rstrip("/") + route
+    metadata = {
+        "status": "exported",
+        "run_id": run_id,
+        "article_count": digest.get("article_count", 0),
+        "source_error_count": digest.get("source_error_count", 0),
+        "source_report_dir": str(report_dir),
+        "destination": str(destination),
+        "route": route,
+        "hosted_url": hosted_url,
+        "files": copied + ["report-site.json"],
+        "sends_email": False,
+        "deploys": False,
+    }
+    (destination / "report-site.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    typer.echo(json.dumps(metadata, indent=2))
+
+
 @app.command("deliver-report")
 def deliver_report(
     config: str = "config.v0.2.example.yaml",
@@ -133,6 +197,80 @@ def deliver_report(
     with Session.begin() as s:
         repo = RadarRepository(s, c.workspace_id)
         result = deliver_existing_report(repo, c, run_id, send=send)
+    typer.echo(json.dumps(result, indent=2))
+
+
+@app.command("content-studio")
+def content_studio(
+    config: str = "config.v0.2.example.yaml",
+    run_id: str = typer.Option(..., "--run-id", help="Existing clean report ID to use as research"),
+    output_dir: str | None = typer.Option(None, "--output-dir", help="New review-artifact directory"),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Allow replacing existing Content Studio files"),
+):
+    c = cfg(config, ensure_dirs=False)
+    report_dir, digest = load_existing_report(c, run_id)
+    destination = Path(output_dir) if output_dir else report_dir / "content-studio"
+    try:
+        result = generate_content_studio(c, run_id, digest, destination, overwrite=overwrite)
+    except ContentStudioError as exc:
+        typer.echo(json.dumps({"status": "refused", "error": str(exc)}, indent=2))
+        raise typer.Exit(2) from exc
+    typer.echo(json.dumps(result, indent=2))
+
+
+@app.command("content-studio-expand")
+def content_studio_expand(
+    config: str = "config.v0.2.example.yaml",
+    run_id: str = typer.Option(..., "--run-id", help="Existing clean report ID to use as research"),
+    briefs_path: str = typer.Option(..., "--briefs", help="Existing approved Content Studio briefs.json"),
+    ranks: str = typer.Option("1,2,3", "--ranks", help="Comma-separated brief ranks to draft"),
+    output_dir: str = typer.Option(..., "--output-dir", help="New draft-artifact directory"),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Allow replacing existing draft-set files"),
+):
+    c = cfg(config, ensure_dirs=False)
+    _, digest = load_existing_report(c, run_id)
+    try:
+        requested = [int(item.strip()) for item in ranks.split(",") if item.strip()]
+        brief_set = BriefSet.model_validate_json(Path(briefs_path).read_text(encoding="utf-8"))
+        result = generate_content_studio_drafts(
+            c,
+            run_id,
+            digest,
+            brief_set,
+            Path(output_dir),
+            ranks=requested,
+            overwrite=overwrite,
+        )
+    except (ContentStudioError, OSError, ValueError) as exc:
+        typer.echo(json.dumps({"status": "refused", "error": str(exc)}, indent=2))
+        raise typer.Exit(2) from exc
+    typer.echo(json.dumps(result, indent=2))
+
+
+@app.command("editorial-review-kit")
+def editorial_review_kit(
+    manifest: str = typer.Option(..., "--manifest", help="Review-kit article manifest JSON"),
+    output_dir: str = typer.Option(..., "--output-dir", help="Local static review-kit directory"),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Allow replacing generated review HTML/CSS/JS"),
+):
+    try:
+        result = build_editorial_review_kit(Path(manifest), Path(output_dir), overwrite=overwrite)
+    except (EditorialReviewError, OSError, ValueError, json.JSONDecodeError) as exc:
+        typer.echo(json.dumps({"status": "refused", "error": str(exc)}, indent=2))
+        raise typer.Exit(2) from exc
+    typer.echo(json.dumps(result, indent=2))
+
+
+@app.command("editorial-review-validate")
+def editorial_review_validate(
+    manifest: str = typer.Option(..., "--manifest", help="Review-kit article manifest JSON"),
+    output_dir: str = typer.Option(..., "--output-dir", help="Generated local review-kit directory"),
+):
+    try:
+        result = validate_editorial_review_kit(Path(manifest), Path(output_dir))
+    except (EditorialReviewError, OSError, ValueError, json.JSONDecodeError) as exc:
+        typer.echo(json.dumps({"status": "refused", "error": str(exc)}, indent=2))
+        raise typer.Exit(2) from exc
     typer.echo(json.dumps(result, indent=2))
 
 

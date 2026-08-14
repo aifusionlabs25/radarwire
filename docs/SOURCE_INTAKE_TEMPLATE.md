@@ -31,6 +31,8 @@ Repeat this section once per competitor/content source.
 - Sitemap URL:
 - Unknown / not available:
 
+When a valid feed or sitemap lives outside the article path, configure it explicitly with `feed_urls` or `sitemap_urls`. Discovery endpoints must remain on an allowed public domain; URLs extracted from them are still restricted to `allowed_paths`.
+
 ### 4. Expected content paths
 
 List URL path prefixes that are expected to contain public content. Keep scope narrow.

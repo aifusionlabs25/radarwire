@@ -148,6 +148,8 @@ def _write_report_artifacts(cfg, run_id='r1'):
     (report_dir/'digest.json').write_text(json.dumps(digest), encoding='utf-8')
     (report_dir/'digest.html').write_text('<html>A</html>', encoding='utf-8')
     (report_dir/'digest.txt').write_text('A', encoding='utf-8')
+    (report_dir/'digest_email.html').write_text('<html>Email A</html>', encoding='utf-8')
+    (report_dir/'digest_email.txt').write_text('Email A', encoding='utf-8')
     (report_dir/'digest.md').write_text('# A', encoding='utf-8')
     (report_dir/'run-summary.json').write_text(json.dumps({'run_id':run_id}), encoding='utf-8')
     return report_dir
@@ -170,6 +172,7 @@ def test_deliver_existing_report_preview_delivery(tmp_path):
     with Session() as s:
         rows=s.execute(__import__('sqlalchemy').select(Outbox)).scalars().all()
         assert len(rows)==1 and rows[0].status=='preview'
+        assert 'digest_email.html' in rows[0].provider_response
 
 
 def test_deliver_report_refuses_live_config_without_send(tmp_path):
@@ -196,8 +199,24 @@ def test_deliver_existing_report_idempotency_skips_duplicate_sent(tmp_path):
     with Session.begin() as s:
         second=deliver_existing_report(RadarRepository(s,c.workspace_id), c, 'r1', send=True, provider=provider)
     assert first['delivery']['status']=='sent'
+    assert first['delivery']['html_artifact']=='digest_email.html'
     assert second['delivery']['status']=='duplicate_skipped'
     assert len(provider.sent)==1
+
+
+def test_deliver_existing_report_uses_email_specific_body_when_present(tmp_path):
+    c=_live_email_cfg(tmp_path)
+    provider=FakeProvider()
+    Session,_=make_session_factory(c.database_url)
+    with Session.begin() as s:
+        result=deliver_existing_report(RadarRepository(s,c.workspace_id), c, 'r1', send=True, provider=provider)
+
+    assert result['delivery']['html_artifact']=='digest_email.html'
+    assert result['delivery']['text_artifact']=='digest_email.txt'
+    sent=provider.sent[0]
+    assert sent.get_body(preferencelist=('plain',)).get_content().strip()=='Email A'
+    assert 'Email A' in sent.get_body(preferencelist=('html',)).get_content()
+    assert '<html>A</html>' not in sent.get_body(preferencelist=('html',)).get_content()
 
 
 def test_deliver_report_command_does_not_invoke_discovery_fetch_or_hermes(tmp_path, monkeypatch):
@@ -211,6 +230,36 @@ def test_deliver_report_command_does_not_invoke_discovery_fetch_or_hermes(tmp_pa
     result=CliRunner().invoke(app, ['deliver-report','--config',str(p),'--run-id','r1'])
     assert result.exit_code==0, result.output
     assert 'preview' in result.output
+
+
+def test_export_report_site_writes_static_route_without_send_or_deploy(tmp_path):
+    p=cfg_file(tmp_path)
+    c=load_config(p); _write_report_artifacts(c)
+    export_root=tmp_path/'site-export'
+
+    result=CliRunner().invoke(app, ['export-report-site','--config',str(p),'--run-id','r1','--output-dir',str(export_root),'--base-url','https://reports.example.com'])
+
+    assert result.exit_code==0, result.output
+    payload=json.loads(result.output)
+    destination=export_root/'reports'/'r1'
+    assert payload['route']=='/reports/r1/'
+    assert payload['hosted_url']=='https://reports.example.com/reports/r1/'
+    assert payload['sends_email'] is False
+    assert payload['deploys'] is False
+    assert (destination/'index.html').read_text(encoding='utf-8')=='<html>A</html>'
+    assert (destination/'digest_email.html').read_text(encoding='utf-8')=='<html>Email A</html>'
+
+
+def test_export_report_site_refuses_existing_export_without_overwrite(tmp_path):
+    p=cfg_file(tmp_path)
+    c=load_config(p); _write_report_artifacts(c)
+    export_root=tmp_path/'site-export'
+    first=CliRunner().invoke(app, ['export-report-site','--config',str(p),'--run-id','r1','--output-dir',str(export_root)])
+    second=CliRunner().invoke(app, ['export-report-site','--config',str(p),'--run-id','r1','--output-dir',str(export_root)])
+
+    assert first.exit_code==0, first.output
+    assert second.exit_code==2
+    assert 'refused_existing_export' in second.output
 
 
 class FailingThenSuccessProvider:

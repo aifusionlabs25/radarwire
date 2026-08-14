@@ -25,6 +25,8 @@ def test_hermes_subprocess_env_keeps_home_runtime_and_provider_vars_without_smtp
     captured = {}
     def fake_run(*args, **kwargs):
         captured['env'] = kwargs['env']
+        captured['encoding'] = kwargs['encoding']
+        captured['errors'] = kwargs['errors']
         class Proc:
             returncode = 0
             stdout = json.dumps({"article":{"title":"T","url":"u","summary":"s","observed_facts":["f"]},"confidence":.9})
@@ -43,7 +45,30 @@ def test_hermes_subprocess_env_keeps_home_runtime_and_provider_vars_without_smtp
     assert env['LOCALAPPDATA'] == r'C:\Users\AI Fusion Labs\AppData\Local'
     assert env['HERMES_HOME'] == r'C:\Users\AI Fusion Labs\.hermes'
     assert env['OPENROUTER_API_KEY'] == 'provider-secret'
+    assert env['PYTHONIOENCODING'] == 'utf-8'
+    assert env['PYTHONUTF8'] == '1'
     assert 'RADAR_SMTP_PASSWORD' not in env
+    assert captured['encoding'] == 'utf-8'
+    assert captured['errors'] == 'replace'
+
+
+def test_subprocess_unicode_input_and_output_are_utf8(tmp_path):
+    s=tmp_path/'unicode.py'
+    s.write_text(
+        'import json,sys\n'
+        'payload=json.loads(sys.stdin.read())\n'
+        'print(json.dumps({"article":{"title":payload["title"],"url":payload["url"],"summary":"UTF-8 nonbreaking hyphen: ‑","observed_facts":["café"]},"confidence":.9}, ensure_ascii=False))',
+        encoding='utf-8',
+    )
+    item = article()
+    item.title = 'UTF-8 title ‑ café'
+    item.sanitized_text = 'Body with UTF-8 ‑ café'
+
+    result, meta = HermesCliAnalysisAdapter(make_cfg(tmp_path,s)).analyze(item)
+
+    assert result.article.title == item.title
+    assert result.article.summary == 'UTF-8 nonbreaking hyphen: ‑'
+    assert result.article.observed_facts == ['café']
 
 
 def test_hermes_prompt_includes_article_payload_for_oneshot(tmp_path, monkeypatch):
@@ -96,6 +121,31 @@ def test_prompt_explicitly_caps_evidence_quotes():
     assert 'evidence_quotes' in instruction
     assert '0 to 5 strings' in instruction
     assert '<= 240 chars' in instruction
+    assert 'client_relevance' in instruction
+
+
+def test_hermes_prompt_includes_public_client_context(tmp_path, monkeypatch):
+    captured = {}
+    def fake_run(cmd, **kwargs):
+        captured['cmd'] = cmd
+        class Proc:
+            returncode = 0
+            stdout = json.dumps({"article":{"title":"T","url":"https://x/a","summary":"s","observed_facts":["f"]},"confidence":.9,"client_relevance":.95,"relevance_reason":"Direct fit"})
+            stderr = ""
+        return Proc()
+    monkeypatch.setattr('radar.analysis.subprocess.run', fake_run)
+    s=tmp_path/'ok.py'; s.write_text('')
+    cfg = make_cfg(tmp_path,s)
+    cfg.client.name = '1099FIRE'
+    cfg.client.offerings = ['1099 e-filing software']
+
+    result, _ = HermesCliAnalysisAdapter(cfg).analyze(article())
+
+    prompt = captured['cmd'][-1]
+    assert 'CLIENT_CONTEXT_JSON' in prompt
+    assert '1099FIRE' in prompt
+    assert '1099 e-filing software' in prompt
+    assert result.client_relevance == .95
 
 
 def test_validation_error_preserves_raw_subprocess_metadata(tmp_path, monkeypatch):

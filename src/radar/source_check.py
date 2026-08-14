@@ -64,15 +64,19 @@ def classify_url(url: str, source_allowed_paths: list[str]) -> tuple[str, str | 
     return "likely_article", None
 
 
-def _apply_source_exclusions(urls: list[str], source, warnings: list[dict]) -> list[str]:
+def _apply_source_exclusions(urls: list[str], source, skipped: list[dict]) -> list[str]:
     kept = []
     for url in urls:
         reason = is_excluded_url(url, source)
         if reason:
-            warnings.append(_warning(reason, url))
+            skipped.append(_warning(reason, url))
             continue
         kept.append(url)
     return kept
+
+
+def _is_intentional_skip(reason: str) -> bool:
+    return reason.startswith("excluded ")
 
 
 def _quality_fields(urls: list[str], source) -> dict:
@@ -117,9 +121,11 @@ def check_sources(cfg: AppConfig) -> dict:
     """
     results = []
     total_discovered = 0
+    total_skipped = 0
     total_warnings = 0
     for source in cfg.sources:
         warnings: list[dict] = []
+        skipped: list[dict] = []
         would_crawl: list[str] = []
         start_url = source.monitor_url or source.url
         start_ok = False
@@ -135,13 +141,20 @@ def check_sources(cfg: AppConfig) -> dict:
                     urls, errors = discover_urls(source, cfg.crawl, report_exclusions=True)
                 except TypeError:
                     urls, errors = discover_urls(source, cfg.crawl)
-                would_crawl = _apply_source_exclusions(urls, source, warnings)
-                warnings.extend(_warning(err) for err in errors)
+                would_crawl = _apply_source_exclusions(urls, source, skipped)
+                for error in errors:
+                    item = _warning(error)
+                    if _is_intentional_skip(error):
+                        skipped.append(item)
+                    else:
+                        warnings.append(item)
             except Exception as exc:
                 warnings.append(_warning(str(exc), start_url))
 
         quality = _quality_fields(would_crawl, source)
+        skipped_or_warnings = skipped + warnings
         total_discovered += len(would_crawl)
+        total_skipped += len(skipped)
         total_warnings += len(warnings)
         results.append(
             {
@@ -157,8 +170,12 @@ def check_sources(cfg: AppConfig) -> dict:
                 "would_crawl_urls": would_crawl,
                 "discovered_url_count": len(would_crawl),
                 **quality,
-                "skipped_or_warnings": warnings,
-                "skipped_or_warning_count": len(warnings),
+                "skipped_urls": skipped,
+                "skipped_count": len(skipped),
+                "warnings": warnings,
+                "warning_count": len(warnings),
+                "skipped_or_warnings": skipped_or_warnings,
+                "skipped_or_warning_count": len(skipped_or_warnings),
                 "ok": start_ok and len(would_crawl) > 0 and not warnings,
             }
         )
@@ -172,6 +189,8 @@ def check_sources(cfg: AppConfig) -> dict:
         "sends_email": False,
         "source_count": len(cfg.sources),
         "total_discovered_urls": total_discovered,
-        "total_skipped_or_warnings": total_warnings,
+        "total_skipped_urls": total_skipped,
+        "total_warnings": total_warnings,
+        "total_skipped_or_warnings": total_skipped + total_warnings,
         "sources": results,
     }

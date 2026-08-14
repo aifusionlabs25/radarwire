@@ -52,6 +52,7 @@ radar install-hermes-profile
 - `radar scan --no-hermes` — dry test path: crawl/fetch, analyze with DeterministicAnalysisAdapter, generate normal reports, mark articles analyzed, and keep `hermes_calls=0`.
 - `radar scan --fail-on-source-errors` — optional strict mode: print report summary but exit nonzero if source warnings/errors were recorded.
 - `radar state-audit` — read-only pilot state audit: counts, sent-email count, active locks, fixture-looking articles, latest run warnings/log path.
+- `radar content-studio --run-id <run_id>` — use an existing source-clean digest to generate three ranked blog briefs and one internal draft; no crawl, email, SQLite mutation, scheduler, deployment, or publishing.
 - `radar source-check` — app-state read-only live public-web discovery: shows discovered URLs per source, likely article vs non-article URL buckets, source quality notes, and skipped/warning reasons without writing articles, sending email, calling Hermes, or opening/creating SQLite state.
 - `radar status`, `health-json`, `backup`, `restore`, `report-list`.
 
@@ -84,6 +85,71 @@ The configured sender, recipient, and reply-to addresses are operator-controlled
 SMTP credentials are loaded only from configured environment variable names if live sending is separately approved later. Do not put secrets in config files.
 
 Email idempotency keys are based on recipient plus stable digest/article content, not transient run IDs. Empty digests with no warnings write report artifacts but skip preview/delivery with `skipped_empty_digest`.
+
+Generated reports now separate the two client-facing delivery formats:
+
+- `digest_email.html` and `digest_email.txt` are the compact email memo. Delivery prefers these files when present.
+- `digest.html` is the interactive browser report with filters, search, and drill-down controls.
+- `digest.md` remains the optional markdown attachment/source artifact.
+
+For a client pilot, the recommended offer is: send the short email brief, then link to the interactive report page only when a hosted report has been explicitly approved.
+
+## Content Studio proof
+
+Content Studio is an explicit post-report step. It does not run automatically with a scan and it never publishes:
+
+```powershell
+& "C:\Users\AI Fusion Labs\AppData\Local\Programs\Python\Python311\python.exe" -m radar.cli content-studio --config <pilot-config.yaml> --run-id <run_id>
+```
+
+Default output is `<report_dir>/content-studio/` and includes:
+
+- `briefs.json` and `briefs.md`: three ranked, multi-source editorial briefs.
+- `draft.json` and `draft.md`: one internal draft expanded from rank 1.
+- `review.html`: a compact operator-review page.
+- `manifest.json`: provenance and side-effect declarations.
+
+The command refuses source-warning digests and existing non-empty output folders by default. Drafts are internal proofs, not tax or legal advice. Fact-check every time-sensitive claim before client review, and never auto-publish.
+
+Content Studio also rejects drafts that exceed the bounded reading length, overuse inline verification markers, cite URLs outside the source digest, name a competitor in client-facing prose or CTA, or fail to name the configured client in the CTA. Any bounded Hermes repair pass and deterministic list trim is disclosed in `manifest.json`.
+
+Expand one or more approved existing briefs without regenerating research or the brief set:
+
+```powershell
+& "C:\Users\AI Fusion Labs\AppData\Local\Programs\Python\Python311\python.exe" -m radar.cli content-studio-expand --config <config> --run-id <run_id> --briefs <briefs.json> --ranks 2,3 --output-dir <new-draft-dir>
+```
+
+Each requested brief runs as an isolated bounded Hermes draft job. The command validates the report ID, source URLs, word bounds, client branding, and output directory, and declares its call count and side-effect posture in `manifest.json`.
+
+After human fact-checking and artwork approval, build a local static comparison hub from a reviewed article manifest:
+
+```powershell
+& "C:\Users\AI Fusion Labs\AppData\Local\Programs\Python\Python311\python.exe" -m radar.cli editorial-review-kit --manifest <articles.json> --output-dir <local-review-dir>
+```
+
+The review-kit builder requires local reviewed Markdown and images, rejects unresolved `[VERIFY]` markers, and writes only HTML, CSS, JavaScript, and a local manifest. It does not email, publish, deploy, crawl, or use SQLite.
+
+For a dual-length article, set `body` to the concise default Markdown, add `full_body` for the extended guide, and provide `full_read_time`. The generated page renders an accessible `Quick Read / Full Guide` segmented control while preserving the single-article format for manifests without `full_body`.
+
+Dual-length pages also accept `?view=quick` and `?view=full` so an email can open the intended edition directly. Set `email_preview: true` to generate a static, JavaScript-free `email-preview.html` with one thumbnail, synopsis, and both reading links per concept. Add `review_base_url` only after the review package has an approved hosted URL; otherwise the preview keeps local relative links and sends nothing.
+
+Run `editorial-review-validate` with the same manifest and output directory before client review. It checks page structure, approved image references, internal and external links, responsive breakpoints, competitor-brand leakage, encoding damage, unresolved verification markers, and the build's side-effect declarations.
+
+## Interactive report page export
+
+The app can prepare a static report folder for a future Vercel/static-site lane without deploying anything:
+
+```powershell
+& "C:\Users\AI Fusion Labs\AppData\Local\Programs\Python\Python311\python.exe" -m radar.cli export-report-site --config config.pilot.local.yaml --run-id <run_id>
+```
+
+Default output:
+
+```text
+.radar-data/site-export/reports/<run_id>/index.html
+```
+
+That `index.html` is the same interactive report as `digest.html`. The command copies files only; it does not send email, run the crawler, call Hermes, register a scheduler, or deploy to Vercel. If this becomes client-facing, host it behind an approved private URL, tokenized path, password, or login rather than leaving reports openly discoverable.
 
 ## Crawling scope and update detection
 

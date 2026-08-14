@@ -41,6 +41,9 @@ config.pilot.hermes-*.yaml
 config.pilot.tuned-placeholder*.yaml
 config.pilot.*local-capture*.yaml
 config.pilot.*preflight-nosend*.yaml
+config.pilot.amy-*.yaml
+config.pilot.local-clean*.yaml
+docs/AMY_*.md
 BUILD_STATUS.md
 PRD.from-prompt-backup.md
 docs/HERMES_DESKTOP_BUILD_PROMPT_v0.2.txt

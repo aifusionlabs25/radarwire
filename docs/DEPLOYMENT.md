@@ -136,3 +136,27 @@ python -m radar.cli scan --config /config/config.yaml --fail-on-source-errors
 ## Dashboard posture
 
 Dashboard remains future/read-only. Current local pilot produces dashboard-ready JSON (`digest.json`) and state audit output only. Do not add client login, billing, public dashboards, or writable dashboard controls in this pilot lane.
+
+## Future migration reference only: Vercel static report page
+
+For a single-owner client, the lowest-friction hosted report lane is a static report page on a private Vercel project or subdomain. The local app can prepare this folder without deploying:
+
+```powershell
+& "C:\Users\AI Fusion Labs\AppData\Local\Programs\Python\Python311\python.exe" -m radar.cli export-report-site --config config.pilot.local.yaml --run-id <run_id>
+```
+
+Default export route:
+
+```text
+.radar-data/site-export/reports/<run_id>/index.html
+```
+
+If later approved, that static export could be served at a domain path such as:
+
+```text
+https://reports.example.com/reports/<run_id>/
+```
+
+Use the hosted page as the drill-down companion to the compact email digest. Do not expose client reports on a public, guessable URL. Add at least one access control layer before client-facing use: private deployment sharing, a tokenized unlisted route, Vercel protection, password gate, or proper login.
+
+This note does not approve deployment. It documents the prepared shape only.

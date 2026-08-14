@@ -209,7 +209,7 @@ def run_pipeline(cfg, baseline: bool = False, use_hermes: bool = True, fixture: 
                 ).scalars()
             )
             report_dir = cfg.data_dir / "reports" / run_id
-            digest = render_reports(run_id, report_dir, analyses, source_errors)
+            digest = render_reports(run_id, report_dir, analyses, source_errors, cfg.client.model_dump())
 
             repo.set_stage(run, "delivery")
             delivery = deliver_or_preview(repo, cfg, run_id, report_dir, digest)

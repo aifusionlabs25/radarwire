@@ -57,6 +57,9 @@ def test_source_check_prints_would_crawl_and_warnings_without_mutating_db(tmp_pa
     assert src["discovered_url_count"] == 2
     assert "https://example.com/blog/a" in src["would_crawl_urls"]
     assert src["skipped_or_warning_count"] == 2
+    assert src["skipped_count"] == 0
+    assert src["warning_count"] == 2
+    assert src["ok"] is False
     assert any("robots" in item["reason"] for item in src["skipped_or_warnings"])
     assert any("outside configured scope" in item["reason"] for item in src["skipped_or_warnings"])
 
@@ -136,8 +139,36 @@ def test_source_check_applies_generic_url_exclusions(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     src = json.loads(result.output)["sources"][0]
     assert src["would_crawl_urls"] == ["https://example.com/blog/tax-guide/"]
+    assert src["skipped_count"] == 2
+    assert src["warning_count"] == 0
+    assert src["ok"] is True
     assert any("excluded_paths" in item["reason"] for item in src["skipped_or_warnings"])
     assert any("excluded_url_contains" in item["reason"] for item in src["skipped_or_warnings"])
+
+
+def test_source_check_treats_discovery_exclusions_as_skips_not_failures(tmp_path, monkeypatch):
+    config_path = cfg_file(tmp_path)
+    import radar.source_check as sc
+
+    monkeypatch.setattr(
+        sc,
+        "discover_urls",
+        lambda source, crawl, **kwargs: (
+            ["https://example.com/blog/tax-guide/"],
+            ["excluded https://example.com/blog/category/tax/: excluded_paths:/blog/category/"],
+        ),
+    )
+
+    result = runner.invoke(app, ["source-check", "--config", str(config_path)])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    src = payload["sources"][0]
+    assert src["skipped_count"] == 1
+    assert src["warning_count"] == 0
+    assert src["ok"] is True
+    assert payload["total_skipped_urls"] == 1
+    assert payload["total_warnings"] == 0
 
 
 def test_discovery_url_exclusion_helper_is_config_driven():
@@ -197,6 +228,46 @@ def test_source_discovery_controls_can_disable_feed_sitemap_and_listing(monkeypa
     urls, errors = discover_urls(source, cfg)
 
     assert urls == ["https://quickbooks.intuit.com/r/taxes/how-to-fill-out-a-1099-form/"]
+    assert errors == []
+
+
+def test_explicit_feed_url_can_live_outside_article_path(monkeypatch):
+    source = SourceConfig(
+        id="example-blog",
+        name="Example Blog",
+        url="https://example.com/blog/",
+        allowed_domains=["example.com"],
+        allowed_paths=["/blog/"],
+        feed_urls=["https://example.com/feed/"],
+        disable_sitemap_discovery=True,
+        disable_listing_discovery=True,
+    )
+    cfg = load_config("config.pilot.local.example.yaml", ensure_dirs=False).crawl
+    monkeypatch.setattr("radar.discovery.robots_allowed", lambda *args, **kwargs: True)
+
+    class Response:
+        status_code = 200
+        text = """<?xml version="1.0"?><rss version="2.0"><channel><item><link>https://example.com/blog/tax-guide/</link></item></channel></rss>"""
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, url):
+            assert url == "https://example.com/feed/"
+            return Response()
+
+    monkeypatch.setattr("radar.discovery.httpx.Client", Client)
+
+    urls, errors = discover_urls(source, cfg)
+
+    assert urls == ["https://example.com/blog/tax-guide/"]
     assert errors == []
 
 

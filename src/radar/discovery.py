@@ -150,12 +150,15 @@ def discover_urls(source: SourceConfig, crawl: CrawlConfig, *, report_exclusions
     with httpx.Client(timeout=crawl.timeout_seconds, follow_redirects=True, headers=headers) as client:
         feed_candidates = []
         if feed_enabled:
-            feed_candidates.extend(feed_urls(start))
+            feed_candidates.extend(source.feed_urls or feed_urls(start))
         if sitemap_enabled:
-            feed_candidates.extend(sitemap_urls(start))
+            feed_candidates.extend(source.sitemap_urls or sitemap_urls(start))
         for fu in feed_candidates:
             try:
-                u = safe_join(start, fu, source.allowed_domains, source.allowed_paths)
+                # Discovery endpoints may live outside article paths (for example,
+                # a site-wide /feed/ that links to articles under /blog/). Links
+                # extracted from them are still constrained to allowed_paths below.
+                u = safe_join(start, fu, source.allowed_domains, ["/"])
                 if not u or not robots_allowed(u, source, crawl, cache=robots_cache):
                     continue
                 r = client.get(u)

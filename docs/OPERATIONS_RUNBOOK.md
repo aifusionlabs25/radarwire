@@ -35,6 +35,7 @@ Do not delete or reuse current build/test `.radar-data` evidence. The clean pilo
 - `radar source-check --config config.pilot.local.yaml` is app-state read-only live public-web discovery. It shows discovered URLs per source, likely article vs non-article URL buckets, source quality notes, and skipped/warning reasons such as robots, scope, redirects, and listing errors. It does not write articles, send email, call Hermes, open/create SQLite state, or create `data_dir`/logs/reports/tmp. It may make public web requests to listing/feed/sitemap/robots URLs.
 - `radar state-audit` is read-only and redacts database URLs; it reports counts, sent-email evidence, active locks, fixture-looking records, latest warning status, and cleanup/archive guidance.
 - `radar status` and `radar health-json` inspect state, including latest run status, last error, source errors, log path, and active lock count.
+- `radar content-studio --config <config> --run-id <run_id>` reads an existing source-clean digest and writes three blog briefs plus one internal draft. It makes two bounded Hermes calls but does not crawl, use SQLite, send email, schedule, deploy, or publish.
 - `radar backup` creates a zip under data dir; `radar restore ARCHIVE` restores.
 - Pipeline logs are written to `.radar-data/pilot/logs/pipeline-<run_id>.log` when using `config.pilot.local.yaml`; per-run file handlers are closed after each run.
 - Robots checks use bounded-timeout per-host caching within a run. Conservative behavior remains: if robots cannot be safely verified, the URL is skipped.
@@ -67,6 +68,44 @@ Current pilot posture is dry-run/preview only. Do not enable live SMTP without e
 3. Confirm configured `sender_email`, `recipient_email`, and `reply_to_email` are the operator-controlled addresses intended for testing.
 4. Only after explicit approval, run one live SMTP test by intentionally changing the three live-send gates and supplying SMTP credentials through environment variables.
 5. After that approved test, run `radar state-audit` and inspect outbox state: the intended sent message should have `sent_at` populated, and retrying the same digest should be skipped by idempotency rather than sent again.
+
+### Client delivery formats
+
+Each scan writes both email-friendly and browser-friendly report artifacts:
+
+- `digest_email.html` and `digest_email.txt`: compact email memo for the client inbox.
+- `digest.html`: interactive report page with search, filters, source drill-down, theme drill-down, and expandable article cards.
+- `digest.json`: dashboard-ready data contract for later product work.
+
+Recommended pilot packaging:
+
+1. Review `digest_email.html` as the actual email body.
+2. Review `digest.html` as the optional interactive report page.
+3. If the client only wants email, send only the compact memo after explicit live-send approval.
+4. If the client wants a report link, export the static report page first and host it only after a separate deployment approval.
+
+### Draft-content review path
+
+1. Run Content Studio only against a reviewed, source-clean report.
+2. Review `content-studio/briefs.md` and choose an editorial direction.
+3. Treat `content-studio/draft.md` as an internal proof even when it reads cleanly.
+4. Verify every item in its factual-review checklist against primary sources before client review.
+5. Confirm tone, offer emphasis, and CTA with the client.
+6. Keep WordPress or other CMS publishing manual and separately approved.
+
+To expand approved briefs independently, use `content-studio-expand` with an existing `briefs.json`, explicit ranks, and a new output directory. Run one rank per invocation for clear status and inexpensive retries. The command does not rerun discovery or mutate app state.
+
+To create a polished local review package after factual and visual approval, use `editorial-review-kit` with a reviewed article manifest and local output directory. The builder refuses unresolved `[VERIFY]` markers, missing images, paths outside the kit, and existing generated pages unless overwrite is explicitly requested. Building the review kit is not approval to email, host, deploy, or publish it.
+
+Prepared static export command, no deploy:
+
+```powershell
+& "C:\Users\AI Fusion Labs\AppData\Local\Programs\Python\Python311\python.exe" -m radar.cli export-report-site --config config.pilot.local.yaml --run-id <run_id>
+```
+
+The export command writes `.radar-data/site-export/reports/<run_id>/index.html` and companion artifacts. It does not send email, run discovery/fetch, call Hermes, use SQLite beyond loading the existing report config, register a scheduler, or deploy to Vercel.
+
+If an export folder already exists, the command refuses to overwrite it unless `--overwrite` is supplied after manual review.
 
 ## Windows runner and scheduler posture
 

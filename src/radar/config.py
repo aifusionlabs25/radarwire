@@ -27,11 +27,16 @@ class CrawlConfig(BaseModel):
     min_update_delta: float = 0.08; respect_robots: bool = True; fetch_retries: int = 0; fetch_retry_backoff_seconds: float = 0.0
 class SourceConfig(BaseModel):
     id: str; name: str; url: str; allowed_domains: list[str]; allowed_paths: list[str]; seed_article: bool = False; seed_only: bool = False; monitor_url: str | None = None
+    feed_urls: list[str] = Field(default_factory=list); sitemap_urls: list[str] = Field(default_factory=list)
     disable_feed_discovery: bool = False; disable_sitemap_discovery: bool = False; disable_listing_discovery: bool = False
     excluded_paths: list[str] = Field(default_factory=list); excluded_url_contains: list[str] = Field(default_factory=list); excluded_title_patterns: list[str] = Field(default_factory=list)
+class ClientContextConfig(BaseModel):
+    name: str = ""; website: str = ""; audience: str = ""
+    offerings: list[str] = Field(default_factory=list); differentiators: list[str] = Field(default_factory=list)
+    content_priorities: list[str] = Field(default_factory=list); deprioritize_topics: list[str] = Field(default_factory=list)
 class AppConfig(BaseModel):
     workspace_id: str = "local-pilot"; data_dir: Path = Path(".radar-data"); database_url: str = "sqlite:///.radar-data/radar.db"; dry_run: bool = True
-    log_level: str = "INFO"; hermes: HermesConfig; email: EmailConfig; crawl: CrawlConfig = Field(default_factory=CrawlConfig); sources: list[SourceConfig]
+    log_level: str = "INFO"; client: ClientContextConfig = Field(default_factory=ClientContextConfig); hermes: HermesConfig; email: EmailConfig; crawl: CrawlConfig = Field(default_factory=CrawlConfig); sources: list[SourceConfig]
 
     @field_validator("data_dir", mode="before")
     @classmethod

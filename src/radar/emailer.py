@@ -81,6 +81,25 @@ def build_email(email_cfg, subject: str, html: str, text: str, md: str | None = 
     return msg
 
 
+def read_email_artifacts(report_dir: Path) -> tuple[str, str, str | None, dict]:
+    html_path = report_dir / "digest_email.html"
+    text_path = report_dir / "digest_email.txt"
+    if not html_path.exists():
+        html_path = report_dir / "digest.html"
+    if not text_path.exists():
+        text_path = report_dir / "digest.txt"
+    md_path = report_dir / "digest.md"
+    metadata = {
+        "html_artifact": html_path.name,
+        "text_artifact": text_path.name,
+        "markdown_artifact": md_path.name if md_path.exists() else None,
+    }
+    html = html_path.read_text(encoding="utf-8")
+    text = text_path.read_text(encoding="utf-8")
+    md = md_path.read_text(encoding="utf-8") if md_path.exists() else None
+    return html, text, md, metadata
+
+
 def load_existing_report(cfg, run_id: str) -> tuple[Path, dict]:
     report_dir = cfg.data_dir / "reports" / run_id
     required = ["digest.json", "digest.html", "digest.txt", "run-summary.json"]
@@ -131,16 +150,14 @@ def deliver_or_preview(repo, cfg, run_id: str, report_dir: Path, digest: dict, p
     if not created and outbox.status == "sent":
         return {"status": "duplicate_skipped", "message_key": key}
 
-    html = (report_dir / "digest.html").read_text(encoding="utf-8")
-    text = (report_dir / "digest.txt").read_text(encoding="utf-8")
-    md = (report_dir / "digest.md").read_text(encoding="utf-8") if (report_dir / "digest.md").exists() else None
+    html, text, md, artifact_metadata = read_email_artifacts(report_dir)
     msg = build_email(cfg.email, subject, html, text, md)
 
     if cfg.dry_run or not cfg.email.enabled or cfg.email.preview_only:
         outbox.status = "preview"
-        outbox.provider_response = "preview_only_no_smtp"
+        outbox.provider_response = f"preview_only_no_smtp; html={artifact_metadata['html_artifact']}; text={artifact_metadata['text_artifact']}"
         outbox.attempt_count += 1
-        return {"status": "preview", "message_key": key}
+        return {"status": "preview", "message_key": key, **artifact_metadata}
 
     cfg.email.assert_live_send_allowed()
     if provider is None:
@@ -152,8 +169,8 @@ def deliver_or_preview(repo, cfg, run_id: str, report_dir: Path, digest: dict, p
         outbox.status = "failed"
         outbox.sent_at = None
         outbox.provider_response = _safe_provider_error(exc)
-        return {"status": "failed", "message_key": key, "provider_response": outbox.provider_response}
+        return {"status": "failed", "message_key": key, "provider_response": outbox.provider_response, **artifact_metadata}
     outbox.status = "sent"
     outbox.sent_at = utcnow()
     outbox.provider_response = str(resp)[:500]
-    return {"status": "sent", "message_key": key}
+    return {"status": "sent", "message_key": key, **artifact_metadata}
