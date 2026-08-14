@@ -39,6 +39,18 @@ function Invoke-RadarJson([string[]]$Arguments) {
   return ($Output | ConvertFrom-Json)
 }
 
+function Invoke-NativeLogged([string]$Executable, [string[]]$Arguments, [string]$Log) {
+  $PreviousPreference = $ErrorActionPreference
+  try {
+    # Several Windows CLI shims write normal progress banners to stderr.
+    $ErrorActionPreference = 'Continue'
+    & $Executable @Arguments *>> $Log
+    return $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $PreviousPreference
+  }
+}
+
 $ProjectRoot = (Resolve-Path $ProjectRoot).Path
 if (-not [IO.Path]::IsPathRooted($ConfigPath)) { $ConfigPath = Join-Path $ProjectRoot $ConfigPath }
 if (-not [IO.Path]::IsPathRooted($SiteRoot)) { $SiteRoot = Join-Path $ProjectRoot $SiteRoot }
@@ -89,8 +101,7 @@ Push-Location $ProjectRoot
 try {
   if (-not $RunId) {
     Save-PublishState @{ status = 'scanning'; run_id = $null; log_path = $LogPath; report_url = $ReportUrl }
-    & $PythonExe -m radar.cli scan --config $ConfigPath --fail-on-source-errors *>> $LogPath
-    $ScanCode = $LASTEXITCODE
+    $ScanCode = Invoke-NativeLogged $PythonExe @('-m', 'radar.cli', 'scan', '--config', $ConfigPath, '--fail-on-source-errors') $LogPath
     if ($ScanCode -ne 0) {
       Save-PublishState @{ status = 'failed_scan'; run_id = $null; exit_code = $ScanCode; log_path = $LogPath; report_url = $ReportUrl }
       throw "Weekly scan failed with exit code $ScanCode. Stable report was not changed."
@@ -114,8 +125,8 @@ try {
 
   Save-PublishState @{ status = 'pending_export'; run_id = $RunId; article_count = [int]$Latest.analyzed_article_count; log_path = $LogPath; report_url = $ReportUrl }
   try {
-    & $PythonExe -m radar.cli export-report-site --config $ConfigPath --run-id $RunId --output-dir $SiteRoot --route-name $RouteName --base-url $HostedBaseUrl --overwrite *>> $LogPath
-    if ($LASTEXITCODE -ne 0) { throw "Report export failed with exit code $LASTEXITCODE." }
+    $ExportCode = Invoke-NativeLogged $PythonExe @('-m', 'radar.cli', 'export-report-site', '--config', $ConfigPath, '--run-id', $RunId, '--output-dir', $SiteRoot, '--route-name', $RouteName, '--base-url', $HostedBaseUrl, '--overwrite') $LogPath
+    if ($ExportCode -ne 0) { throw "Report export failed with exit code $ExportCode." }
   } catch {
     Save-PublishState @{ status = 'failed_export'; run_id = $RunId; article_count = [int]$Latest.analyzed_article_count; log_path = $LogPath; report_url = $ReportUrl; error = $_.Exception.Message }
     throw
@@ -135,8 +146,8 @@ try {
 
   Save-PublishState @{ status = 'pending_deploy'; run_id = $RunId; article_count = [int]$LocalMetadata.article_count; log_path = $LogPath; report_url = $ReportUrl }
   try {
-    & $VercelExe deploy --prod --yes --cwd $SiteRoot *>> $LogPath
-    if ($LASTEXITCODE -ne 0) { throw "Vercel deploy failed with exit code $LASTEXITCODE." }
+    $DeployCode = Invoke-NativeLogged $VercelExe @('deploy', '--prod', '--yes', '--cwd', $SiteRoot) $LogPath
+    if ($DeployCode -ne 0) { throw "Vercel deploy failed with exit code $DeployCode." }
   } catch {
     Save-PublishState @{ status = 'failed_deploy'; run_id = $RunId; article_count = [int]$LocalMetadata.article_count; log_path = $LogPath; report_url = $ReportUrl; error = $_.Exception.Message }
     throw

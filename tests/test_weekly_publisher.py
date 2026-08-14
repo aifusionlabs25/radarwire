@@ -12,7 +12,8 @@ def test_weekly_publisher_has_clean_gates_resume_and_live_verification():
     assert "pending_deploy" in script
     assert "no_changes" in script
     assert "report-site.json" in script
-    assert "deploy --prod --yes" in script
+    assert "Invoke-NativeLogged" in script
+    assert "@('deploy', '--prod', '--yes'" in script
     assert "Invoke-RestMethod" in script
     assert "deliver-report" not in script
     assert "--send" not in script
