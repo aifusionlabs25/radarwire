@@ -55,6 +55,22 @@ def test_weekly_email_configurator_uses_dpapi_and_never_prints_credentials():
     assert "Register-ScheduledTask" not in script
 
 
+def test_smtp_credential_helper_is_hidden_dpapi_scoped_and_refuses_overwrite():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "scripts" / "windows" / "store-smtp-credential.ps1").read_text(encoding="utf-8")
+
+    assert "Read-Host 'Paste the Gmail app password, then press Enter' -AsSecureString" in script
+    assert "ConvertFrom-SecureString" in script
+    assert "Windows DPAPI current user" in script
+    assert "-not $Force" in script
+    assert "-replace '\\s', ''" in script
+    assert "exactly 16 non-space characters" in script
+    assert "ZeroFreeBSTR" in script
+    assert "No email was sent" in script
+    assert "deliver-report" not in script
+    assert "Register-ScheduledTask" not in script
+
+
 def test_local_capture_runner_uses_clean_child_environment():
     root = Path(__file__).resolve().parents[1]
     script = (root / "scripts" / "run-local-capture-email-test.ps1").read_text(encoding="utf-8")

@@ -127,6 +127,7 @@ The weekly publication lane is `publish-weekly-report.ps1`. It performs a strict
 
 1. Confirm the reviewed source config contains the approved From, To, and Reply-To addresses. Placeholder `example.com` addresses are blocked.
 2. Run `configure-weekly-email.ps1` interactively. It creates a separate live-capable delivery config and a current-user Windows DPAPI credential envelope; it sends nothing.
+   When only the Gmail credential needs to be added or rotated, use `store-smtp-credential.ps1`; use `-Force` only for an intentional replacement. The helper validates the normalized 16-character app-password shape before storing it.
 3. Run `email-delivery-preflight` against an existing clean run after loading the credential into process-only environment variables. Confirm every boolean is true without displaying credential values.
 4. Run the local SMTP capture harness and inspect the captured `.eml`, including the hosted-report button and plain-text fallback.
 5. Perform exactly one separately approved real SMTP send, then verify the outbox row changed to `sent`, `sent_at` is populated, and a second invocation returns `duplicate_skipped`.
