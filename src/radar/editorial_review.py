@@ -125,6 +125,7 @@ def _editorial_context(package: dict[str, Any], article: dict[str, Any]) -> dict
         "article_title": str(article["title"]),
         "revision_api": str(package.get("revision_api") or "/api/editorial-revisions"),
         "status_api": str(package.get("status_api") or "/api/editorial-status"),
+        "session_api": str(package.get("session_api") or "/api/editorial-session"),
         "download_basename": str(article["slug"]),
         "voice_library_name": str(package.get("voice_library_name") or f"{client_name} voice library"),
     }
@@ -133,7 +134,13 @@ def _editorial_context(package: dict[str, Any], article: dict[str, Any]) -> dict
 def _review_access_context(package: dict[str, Any]) -> dict[str, str | int]:
     client_name = str(package.get("client_name") or "client")
     client_id = str(package.get("client_id") or re.sub(r"[^a-z0-9]+", "-", client_name.casefold())).strip("-")
-    return {"schema_version": 1, "client_id": client_id}
+    edition_id = str(package.get("edition_id") or package.get("delivery_id") or "draft-edition")
+    return {
+        "schema_version": 1,
+        "client_id": client_id,
+        "edition_id": edition_id,
+        "session_api": str(package.get("session_api") or "/api/editorial-session"),
+    }
 
 
 def _editorial_workspace(package: dict[str, Any], article: dict[str, Any]) -> str:
@@ -162,10 +169,10 @@ def _editorial_workspace(package: dict[str, Any], article: dict[str, Any]) -> st
     <div class="editor-dialog-backdrop" data-editor-dialog hidden>
       <section class="editor-dialog" role="dialog" aria-modal="true" aria-labelledby="editor-dialog-title">
         <button type="button" class="editor-dialog-close" data-editor-cancel aria-label="Close">&times;</button>
-        <div class="eyebrow">Private editorial workspace</div>
+        <div class="eyebrow">Save your work</div>
         <h2 id="editor-dialog-title">Save your changes</h2>
-        <p>RadarWire saves a private copy of your edited draft before it is copied or downloaded.</p>
-        <label class="editor-consent"><input type="checkbox" data-editor-voice-consent><span><strong>Help future drafts sound more like {html.escape(str(package.get('client_name') or 'the client'))}</strong>Use this finished version as a writing example. Leave this unchecked if you only want to save your changes.</span></label>
+        <p>RadarWire will keep a private copy of this revision, then copy or download it for you.</p>
+        <div class="editor-disclosure"><strong>Your changes help with next week.</strong><span>We use the saved version to remember your edits, match your writing style, and avoid repeating topics.</span></div>
         <div class="editor-dialog-actions"><button type="button" class="editor-button" data-editor-cancel>Cancel</button><button type="button" class="editor-button editor-button-primary" data-editor-submit>Save revision</button></div>
         <div class="editor-error" data-editor-error role="alert" hidden></div>
       </section>
@@ -465,6 +472,9 @@ STYLES += """
 STYLES += """
 .editor-workspace{align-items:stretch;display:grid;grid-template-columns:minmax(250px,1fr) auto;grid-template-areas:"choice choice" "actions state";padding-top:18px;padding-bottom:18px}.editor-choice{grid-area:choice;display:flex;align-items:center;justify-content:space-between;gap:20px;padding-bottom:16px;border-bottom:1px solid #c7ded0}.editor-choice>div:first-child{display:flex;flex-direction:column}.editor-choice strong{font:700 19px/1.25 Georgia,serif}.editor-choice span{margin-top:3px;color:var(--muted);font-size:13px}.editor-choice-actions{display:flex;gap:8px;flex-wrap:wrap}.editor-actions{grid-area:actions;padding-top:12px}.editor-state{grid-area:state;align-self:center;margin-top:12px}.editor-button-choice{border-color:var(--brand-green-dark);background:var(--brand-green-dark);color:#fff}.editor-button-choice:hover{border-color:#056b2d;background:#056b2d;color:#fff}.editor-choice.is-selected{background:#f6fbf7}.editor-choice.is-selected .editor-button-choice{background:#fff;color:var(--brand-green-dark)}[data-published-url-field]{margin-bottom:18px}[data-published-url-field][hidden]{display:none!important}.status-dialog .editor-dialog-actions{margin-top:22px}@media(max-width:760px){.editor-workspace{grid-template-columns:1fr;grid-template-areas:"choice" "actions" "state"}.editor-choice{align-items:flex-start;flex-direction:column}.editor-choice-actions{width:100%}.editor-choice-actions .editor-button{flex:1 1 auto}.editor-state{order:initial}}
 """
+STYLES += """
+.editor-disclosure{display:flex;flex-direction:column;gap:4px;margin:20px 0;padding:16px;border-left:4px solid var(--brand-green);background:#eef8f0}.editor-disclosure strong{font-size:14px}.editor-disclosure span{color:var(--muted);font-size:13px;line-height:1.55}
+"""
 STYLES = STYLES.replace("letter-spacing:.08em", "letter-spacing:0")
 
 
@@ -472,13 +482,17 @@ SCRIPT = r"""(() => {
   const contextNode = document.getElementById('editorial-context') || document.getElementById('review-access-context');
   if (!contextNode) return;
   const context = JSON.parse(contextNode.textContent);
-  const tokenKey = `radarwire:editor-token:${context.client_id}`;
-  const fragment = new URLSearchParams(location.hash.slice(1));
-  const invitation = fragment.get('review') || '';
-  if (/^[A-Za-z0-9_-]{32,128}$/.test(invitation)) {
-    try { sessionStorage.setItem(tokenKey, invitation); } catch (_) {}
-    history.replaceState({}, '', `${location.pathname}${location.search}`);
-  }
+  const url = new URL(context.session_api || '/api/editorial-session', location.href);
+  url.searchParams.set('client_id', context.client_id);
+  url.searchParams.set('edition_id', context.edition_id);
+  window.radarEditorialSessionReady = fetch(url, {
+    method: 'GET',
+    credentials: 'same-origin',
+    headers: { 'Accept': 'application/json' },
+  }).then(async (response) => {
+    const result = await response.json().catch(() => ({}));
+    return response.ok ? result : { ok: false, error: result.error || 'Editorial saving is temporarily unavailable.' };
+  }).catch(() => ({ ok: false, error: 'Editorial saving is temporarily unavailable.' }));
 })();
 """
 SCRIPT += """(() => { const bar = document.querySelector('.reading-progress span'); if (!bar) return; const update = () => { const max = document.documentElement.scrollHeight - innerHeight; bar.style.width = `${max > 0 ? (scrollY / max) * 100 : 0}%`; }; addEventListener('scroll', update, {passive:true}); addEventListener('resize', update); update(); })();\n"""
@@ -498,12 +512,10 @@ SCRIPT += r"""(() => {
   const status = workspace.querySelector('[data-editor-status]');
   const actions = Object.fromEntries([...workspace.querySelectorAll('[data-editor-action]')].map((node) => [node.dataset.editorAction, node]));
   const dialog = document.querySelector('[data-editor-dialog]');
-  const voiceConsent = dialog?.querySelector('[data-editor-voice-consent]');
   const submit = dialog?.querySelector('[data-editor-submit]');
   const error = dialog?.querySelector('[data-editor-error]');
   const toast = document.querySelector('[data-editor-toast]');
   const storageKey = `radarwire:draft:${context.client_id}:${context.edition_id}:${context.article_slug}`;
-  const tokenKey = `radarwire:editor-token:${context.client_id}`;
   let editing = false;
   let pendingAction = null;
   let toastTimer = null;
@@ -595,18 +607,12 @@ SCRIPT += r"""(() => {
     dialog.hidden = false;
     document.body.classList.add('editor-dialog-open');
     if (error) error.hidden = true;
-    const existing = safeStorage(sessionStorage, (store) => store.getItem(tokenKey), '');
-    voiceConsent.checked = false;
-    submit.disabled = !existing;
-    if (!existing && error) {
-      error.textContent = 'This page needs the complete private review link. Ask Rob to resend it.';
-      error.hidden = false;
-    }
+    submit.disabled = false;
     submit.focus();
   };
   const saveRevision = async () => {
-    const token = safeStorage(sessionStorage, (store) => store.getItem(tokenKey), '') || '';
-    if (!token) throw new Error('This page needs the complete private review link. Ask Rob to resend it.');
+    const session = await (window.radarEditorialSessionReady || Promise.resolve({ ok: false }));
+    if (!session?.ok) throw new Error('RadarWire could not connect to saving. Refresh the page and try once more.');
     const mode = activeMode();
     const cleanCopy = sanitize(copies[mode]);
     const originalHolder = document.createElement('div');
@@ -624,22 +630,20 @@ SCRIPT += r"""(() => {
       original_text: plainText(cleanOriginal),
       edited_html: cleanCopy.innerHTML,
       edited_text: plainText(cleanCopy),
-      approval_status: voiceConsent.checked ? 'approved_final' : 'submitted',
-      voice_library_consent: voiceConsent.checked,
-      consent_notice: 'Saved privately in RadarWire; approved versions may be used for future client voice matching.',
+      approval_status: 'approved_final',
+      voice_library_consent: true,
+      consent_notice: 'Saved privately in RadarWire to remember edits, improve future voice matching, and prevent repeated topics.',
       source_url: location.href,
     };
     const response = await fetch(context.revision_api, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-      if (response.status === 401) {
-        safeStorage(sessionStorage, (store) => store.removeItem(tokenKey));
-        throw new Error('This private review link is no longer valid. Ask Rob for a fresh link.');
-      }
+      if (response.status === 401) throw new Error('RadarWire could not connect to saving. Refresh the page and try once more.');
       throw new Error(result.error || `RadarWire could not save this revision (${response.status}).`);
     }
     closeDialog();
@@ -697,7 +701,6 @@ SCRIPT += r"""(() => {
   const submit = dialog.querySelector('[data-status-submit]');
   const error = dialog.querySelector('[data-status-error]');
   const toast = document.querySelector('[data-editor-toast]');
-  const tokenKey = `radarwire:editor-token:${context.client_id}`;
   const stateKey = `radarwire:editor-status:${context.client_id}:${context.edition_id}:${context.article_slug}`;
   let pendingStatus = 'selected';
   let toastTimer = null;
@@ -738,17 +741,15 @@ SCRIPT += r"""(() => {
     urlInput.required = publishing;
     urlInput.value = '';
     submit.textContent = publishing ? 'Save published link' : 'Choose this topic';
-    const token = safeStorage(sessionStorage, (store) => store.getItem(tokenKey), '') || '';
-    submit.disabled = !token;
+    submit.disabled = false;
     dialog.hidden = false;
     document.body.classList.add('editor-dialog-open');
-    error.hidden = Boolean(token);
-    if (!token) error.textContent = 'This page needs the complete private review link. Ask Rob to resend it.';
+    error.hidden = true;
     (publishing ? urlInput : submit).focus();
   };
   const saveStatus = async () => {
-    const token = safeStorage(sessionStorage, (store) => store.getItem(tokenKey), '') || '';
-    if (!token) throw new Error('This page needs the complete private review link. Ask Rob to resend it.');
+    const session = await (window.radarEditorialSessionReady || Promise.resolve({ ok: false }));
+    if (!session?.ok) throw new Error('RadarWire could not save this yet. Refresh the page and try once more.');
     const publishedUrl = urlInput.value.trim();
     if (pendingStatus === 'published') {
       let parsed;
@@ -757,7 +758,8 @@ SCRIPT += r"""(() => {
     }
     const response = await fetch(context.status_api, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         schema_version: 1,
         client_id: context.client_id,
@@ -772,10 +774,7 @@ SCRIPT += r"""(() => {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-      if (response.status === 401) {
-        safeStorage(sessionStorage, (store) => store.removeItem(tokenKey));
-        throw new Error('This private review link is no longer valid. Ask Rob for a fresh link.');
-      }
+      if (response.status === 401) throw new Error('RadarWire could not save this yet. Refresh the page and try once more.');
       throw new Error(result.error || `RadarWire could not save this choice (${response.status}).`);
     }
     safeStorage(localStorage, (store) => store.setItem(stateKey, pendingStatus));
@@ -978,7 +977,7 @@ def validate_editorial_review_kit(manifest_path: Path, output_dir: Path) -> dict
                 or page.select_one('[data-editor-choice="publish"]') is None
                 or page.select_one("[data-status-dialog]") is None
                 or page.select_one('[data-editor-action="download"]') is None
-                or page.select_one("[data-editor-voice-consent]") is None
+                or page.select_one(".editor-disclosure") is None
             ):
                 raise EditorialReviewError(f"Article {article['rank']} is missing the private editorial workspace")
         if any(

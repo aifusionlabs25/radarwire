@@ -1,18 +1,6 @@
-import { timingSafeEqual } from 'node:crypto';
 import { get, list, put } from '@vercel/blob';
 import { buildRevisionRecord, revisionBlobPath } from './_editorial_revision_core.mjs';
-
-function secureEqual(left, right) {
-  const first = Buffer.from(left || '', 'utf8');
-  const second = Buffer.from(right || '', 'utf8');
-  return first.length === second.length && timingSafeEqual(first, second);
-}
-
-function isAuthorized(request) {
-  const expected = String(process.env.RADAR_EDITORIAL_SAVE_TOKEN || '').trim();
-  const supplied = String(request.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-  return Boolean(expected) && secureEqual(supplied, expected);
-}
+import { isEditorialAdmin, isEditorialWriteAuthorized } from './_editorial_session_core.mjs';
 
 function sameOrigin(request) {
   const origin = request.headers.origin;
@@ -47,7 +35,13 @@ export default async function handler(request, response) {
     return json(response, 405, { ok: false, error: 'Method not allowed' });
   }
   if (!sameOrigin(request)) return json(response, 403, { ok: false, error: 'Cross-origin requests are not allowed' });
-  if (!isAuthorized(request)) return json(response, 401, { ok: false, error: 'Private review code not accepted' });
+  const secret = String(process.env.RADAR_EDITORIAL_SAVE_TOKEN || '').trim();
+  if (request.method === 'GET' && !isEditorialAdmin(request, secret)) {
+    return json(response, 401, { ok: false, error: 'Operator authorization required' });
+  }
+  if (request.method === 'POST' && !isEditorialWriteAuthorized(request, request.body, secret)) {
+    return json(response, 401, { ok: false, error: 'Editorial session unavailable' });
+  }
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return json(response, 503, { ok: false, error: 'Private editorial storage is not configured yet' });
   }

@@ -191,6 +191,7 @@ def test_editorial_review_kit_can_enable_private_revision_workspace(tmp_path):
             "editorial_editing": True,
             "revision_api": "/api/editorial-revisions",
             "status_api": "/api/editorial-status",
+            "session_api": "/api/editorial-session",
         }
     )
     data["articles"][0]["full_body"] = full_body.name
@@ -205,7 +206,8 @@ def test_editorial_review_kit_can_enable_private_revision_workspace(tmp_path):
     assert 'data-editor-action="download-original"' in page
     assert "Download Word (.doc)" in page
     assert 'data-editor-action="download"' in page
-    assert 'data-editor-voice-consent' in page
+    assert 'class="editor-disclosure"' in page
+    assert 'data-editor-voice-consent' not in page
     assert 'data-editor-choice="select"' in page
     assert 'data-editor-choice="publish" hidden' in page
     assert "Choose this topic" in page
@@ -216,20 +218,25 @@ def test_editorial_review_kit_can_enable_private_revision_workspace(tmp_path):
     assert "Private review code" not in page
     assert "data-editor-token" not in page
     assert "data-status-token" not in page
-    assert "This page needs the complete private review link" in script
-    assert "fragment.get('review')" in script
-    assert "sessionStorage.setItem(tokenKey, invitation)" in script
-    assert "localStorage.setItem(tokenKey" not in script
+    assert "private review link" not in script
+    assert "fragment.get('review')" not in script
+    assert "sessionStorage" not in script
+    assert "window.radarEditorialSessionReady" in script
+    assert "credentials: 'same-origin'" in script
+    assert '"session_api": "/api/editorial-session"' in page
     assert '"client_id": "amy-huffman"' in page
     assert '"edition_id": "edition-2026-08-14"' in page
     assert "Save to RadarWire and downloaded" not in script
     assert "actions['download-original'].addEventListener" in script
     assert "Save & download Word" in script
     assert "voice_library_consent" in script
+    assert "voice_library_consent: true" in script
     assert "localStorage" in script
     assert "application/msword" in script
     index = (tmp_path / "index.html").read_text(encoding="utf-8")
     assert 'id="review-access-context"' in index
+    assert '"edition_id": "edition-2026-08-14"' in index
+    assert '"session_api": "/api/editorial-session"' in index
     assert '<script src="review.js"></script>' in index
     assert validate_editorial_review_kit(manifest, tmp_path)["status"] == "ok"
 

@@ -5,7 +5,7 @@ RadarWire review kits can enable an in-page draft editor without turning the pub
 The client experience deliberately separates three decisions:
 
 1. **Choose this topic** records the weekly choice. It does not publish or send anything.
-2. **Edit draft** stores a private revision. Voice matching remains optional and requires a separate checkbox.
+2. **Edit draft** stores a private revision before RadarWire copies or downloads it.
 3. **Mark as published** appears only after the topic is chosen and requires the final public HTTPS link.
 
 This progression keeps the first visit simple. The client does not see publication controls until they are relevant.
@@ -20,20 +20,18 @@ Each immutable revision contains:
 - original and edited HTML and plain text
 - original and edited SHA-256 hashes and word counts
 - submission time and source review URL
-- approval status and the client's explicit voice-library consent
+- approval status and the plain-language retention notice shown before saving
 
-Ordinary submissions use `submitted`. A revision is eligible for Hermes voice matching only when the client checks the approval box, producing `approved_final` plus `voice_library_consent: true`.
+Saved revisions use `approved_final` plus `voice_library_consent: true`. The dialog plainly explains that RadarWire retains the saved version to remember edits, improve future voice matching, and avoid repeated topics. There is no separate technical setting for the client to manage.
 
 ## Vercel Configuration
 
-The revision API is `api/editorial-revisions.js`; the topic/publication ledger is `api/editorial-status.js`. Both require:
+The revision API is `api/editorial-revisions.js`; the topic/publication ledger is `api/editorial-status.js`; and `api/editorial-session.js` establishes the browser's same-site editing session. They require:
 
 - `BLOB_READ_WRITE_TOKEN`, injected by a private Vercel Blob store
-- `RADAR_EDITORIAL_SAVE_TOKEN`, a long private credential used to create the client's invitation link
+- `RADAR_EDITORIAL_SAVE_TOKEN`, a long server-side signing credential
 
-The credential is placed in the invitation link fragment (`#review=...`) by the local helper. URL fragments are not sent in ordinary HTTP requests or referrer headers. On first load, RadarWire moves it into browser session storage and immediately removes the fragment from the address bar. Protected saves use an authorization header. The credential is not embedded in generated HTML, query strings, Git, or report artifacts. Revision and status blobs use private access and unique immutable paths.
-
-The client receives one private invitation link and sees no password field. Treat that complete invitation link like a password: send it directly to the intended reviewer and do not post it publicly.
+The client receives one ordinary review link. On page load, RadarWire silently creates a 90-day, `HttpOnly`, `Secure`, same-site browser session scoped to the API. The signing credential is never embedded in HTML, URLs, browser storage, Git, or report artifacts. Revision, status, and published-page snapshot blobs use private access and immutable paths.
 
 The unauthenticated health check reports configuration booleans only:
 
@@ -44,15 +42,7 @@ GET /api/editorial-status?health=1
 
 Do not share, email, or schedule an editing-enabled kit until both booleans are true and one operator-controlled save/download has been verified.
 
-After the Blob store is linked, `scripts/windows/configure-editorial-workspace.ps1` creates a random credential, stores a DPAPI-encrypted local recovery copy, and configures the Vercel variable for all three environments. Vercel stores it as sensitive in Production and Preview and encrypted in Development. The helper refuses replacement unless `-Force` is supplied. It does not print the token, deploy, send email, or register a task.
-
-Copy the complete private invitation link to the Windows clipboard without printing its credential:
-
-```powershell
-scripts\windows\copy-editorial-review-link.ps1
-```
-
-Paste that one link directly into the client email. Opening it establishes access for the current browser tab, after which the client can navigate among all three drafts normally.
+After the Blob store is linked, `scripts/windows/configure-editorial-workspace.ps1` creates a random signing credential, stores a DPAPI-encrypted local recovery copy, and configures the Vercel variable for all three environments. Vercel stores it as sensitive in Production and Preview and encrypted in Development. The helper refuses replacement unless `-Force` is supplied. It does not print the token, deploy, send email, or register a task. The older private-link clipboard helper is retained only for historical compatibility and is not part of the client workflow.
 
 ## Review Manifest
 
@@ -65,6 +55,7 @@ Enable the editor in an editorial review manifest:
   "editorial_editing": true,
   "revision_api": "/api/editorial-revisions",
   "status_api": "/api/editorial-status",
+  "session_api": "/api/editorial-session",
   "voice_library_name": "Amy Huffman approved voice library"
 }
 ```
@@ -99,7 +90,7 @@ Hermes receives approved text as style evidence only. It is instructed not to co
 
 ## Published-content Handoff
 
-Only a **Mark as published** event enters the non-repetition history. A selected topic is useful workflow state, but it is not treated as published evidence.
+Only a **Mark as published** event enters the non-repetition history. A selected topic is useful workflow state, but it is not treated as published evidence. When Amy supplies a live 1099FIRE URL, RadarWire also attempts to archive a private HTML snapshot with its content hash. A temporary fetch failure does not lose the publication event; the failure is recorded for an operator retry.
 
 Sync the private publication ledger to the ignored local workspace:
 
