@@ -105,6 +105,8 @@ def test_build_editorial_review_kit_writes_static_pages_without_side_effects(tmp
     assert (tmp_path / "article-1.html").is_file()
     page = (tmp_path / "article-1.html").read_text(encoding="utf-8")
     assert "Reviewer sources" in page
+    assert '<meta name="robots" content="noindex,nofollow,noarchive">' in page
+    assert "source-backed item(s) for final review" in page
     assert "assets/inline-1.png" in page
     assert "[VERIFY]" not in page
 

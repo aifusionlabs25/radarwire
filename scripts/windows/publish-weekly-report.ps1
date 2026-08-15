@@ -60,6 +60,7 @@ function Invoke-NativeLogged([string]$Executable, [string[]]$Arguments, [string]
 function Sync-DeploymentShell([string]$SourceRoot, [string]$DestinationRoot) {
   $Files = @(
     'index.html',
+    'vercel.json',
     'package.json',
     'package-lock.json',
     'api\editorial-revisions.js',

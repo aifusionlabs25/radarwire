@@ -52,3 +52,15 @@ test('rejects unsafe identifiers and non-HTTPS source URLs', () => {
   assert.throws(() => validateRevisionInput(revision({ client_id: '../amy' })), /client_id/);
   assert.throws(() => validateRevisionInput(revision({ source_url: 'http://localhost/draft' })), /HTTPS/);
 });
+
+test('rejects active markup even when a client bypasses browser sanitization', () => {
+  assert.throws(
+    () => validateRevisionInput(revision({ edited_html: '<p onclick="sendSecret()">Unsafe</p>' })),
+    /unsafe active markup/,
+  );
+  assert.throws(
+    () => validateRevisionInput(revision({ original_html: '<a href="javascript:alert(1)">Unsafe</a>' })),
+    /unsafe active markup/,
+  );
+  assert.doesNotThrow(() => validateRevisionInput(revision({ edited_html: '<p><a href="https://www.irs.gov/">Safe source</a></p>' })));
+});

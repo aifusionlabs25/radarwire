@@ -3,6 +3,14 @@ import { createHash, randomUUID } from 'node:crypto';
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,79}$/;
 const MODES = new Set(['short', 'full']);
 const STATUSES = new Set(['submitted', 'approved_final']);
+const UNSAFE_HTML = [
+  /<(?:script|style|iframe|object|embed|form|input|button|select|textarea|link|meta|base|svg|math)\b/i,
+  /\son[a-z]+\s*=/i,
+  /\ssrcdoc\s*=/i,
+  /(?:javascript|vbscript)\s*:/i,
+  /data\s*:\s*text\/html/i,
+  /expression\s*\(/i,
+];
 
 function requiredString(value, field, maxLength) {
   if (typeof value !== 'string' || !value.trim()) {
@@ -18,6 +26,14 @@ function requiredId(value, field) {
   const result = requiredString(value, field, 80);
   if (!ID_PATTERN.test(result)) {
     throw new Error(`${field} must use lowercase letters, numbers, and hyphens`);
+  }
+  return result;
+}
+
+function safeHtml(value, field, maxLength) {
+  const result = requiredString(value, field, maxLength);
+  if (UNSAFE_HTML.some((pattern) => pattern.test(result))) {
+    throw new Error(`${field} contains unsafe active markup`);
   }
   return result;
 }
@@ -55,9 +71,9 @@ export function validateRevisionInput(raw) {
     article_slug: requiredId(raw.article_slug, 'article_slug'),
     article_title: requiredString(raw.article_title, 'article_title', 240),
     reading_mode: readingMode,
-    original_html: requiredString(raw.original_html, 'original_html', 300000),
+    original_html: safeHtml(raw.original_html, 'original_html', 300000),
     original_text: requiredString(raw.original_text, 'original_text', 160000),
-    edited_html: requiredString(raw.edited_html, 'edited_html', 300000),
+    edited_html: safeHtml(raw.edited_html, 'edited_html', 300000),
     edited_text: requiredString(raw.edited_text, 'edited_text', 160000),
     approval_status: approvalStatus,
     voice_library_consent: voiceLibraryConsent,

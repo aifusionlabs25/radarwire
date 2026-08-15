@@ -106,7 +106,7 @@ def _review_url(package: dict[str, Any], path: str) -> str:
 def _verification_label(article: dict[str, Any]) -> str:
     summary = article["_verification_summary"]
     if summary["needs_review_count"]:
-        return f"{summary['needs_review_count']} factual item(s) need review"
+        return f"{summary['needs_review_count']} source-backed item(s) for final review"
     if summary["verified_count"]:
         return f"{summary['verified_count']} factual item(s) verified"
     return "Editorial guidance only"
@@ -234,6 +234,7 @@ def _article_page(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
   <meta name="description" content="{html.escape(article['meta_description'], quote=True)}">
   <title>{html.escape(article['meta_title'])}</title>
   <link rel="stylesheet" href="styles.css">
@@ -298,6 +299,7 @@ def _index_page(package: dict[str, Any]) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
   <meta name="description" content="{html.escape(package['package_dek'], quote=True)}">
   <title>{html.escape(package['client_name'])} {html.escape(package['package_title'])}</title>
   <link rel="stylesheet" href="styles.css">
@@ -503,10 +505,15 @@ SCRIPT += r"""(() => {
   };
   const sanitize = (node) => {
     const clone = node.cloneNode(true);
-    clone.querySelectorAll('script,style,iframe,object,embed,form,input,button').forEach((item) => item.remove());
+    clone.querySelectorAll('script,style,iframe,object,embed,form,input,button,select,textarea,link,meta,base,svg,math').forEach((item) => item.remove());
     clone.querySelectorAll('*').forEach((item) => [...item.attributes].forEach((attribute) => {
-      if (attribute.name.toLowerCase().startsWith('on')) item.removeAttribute(attribute.name);
-      if (attribute.name === 'contenteditable' || attribute.name === 'spellcheck') item.removeAttribute(attribute.name);
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value.trim().toLowerCase().replace(/\s+/g, '');
+      if (name.startsWith('on') || name === 'srcdoc') item.removeAttribute(attribute.name);
+      if (['href', 'src', 'xlink:href'].includes(name) && /^(javascript:|vbscript:|data:text\/html)/.test(value)) {
+        item.removeAttribute(attribute.name);
+      }
+      if (name === 'contenteditable' || name === 'spellcheck') item.removeAttribute(attribute.name);
     }));
     clone.querySelectorAll('img[src]').forEach((image) => { image.src = new URL(image.getAttribute('src'), location.href).href; });
     return clone;
