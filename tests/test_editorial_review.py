@@ -8,7 +8,7 @@ from typer.testing import CliRunner
 
 from radar.cli import app
 from radar.editorial_review import EditorialReviewError, build_editorial_review_kit, validate_editorial_review_kit
-from radar.emailer import deliver_editorial_review
+from radar.emailer import deliver_editorial_review, editorial_delivery_preflight
 
 
 def package(tmp_path):
@@ -30,6 +30,25 @@ def package(tmp_path):
         )
         (assets / f"hero-{rank}.png").write_bytes(b"png")
         (assets / f"inline-{rank}.png").write_bytes(b"png")
+        verification_file = f"verification-{rank}.json"
+        (content / verification_file).write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "article_id": f"article-{rank}",
+                    "claims": [
+                        {
+                            "claim_id": "claim-001",
+                            "claim": "Confirm current filing guidance before publication.",
+                            "status": "needs_review",
+                            "source_urls": [],
+                            "review_note": "Requires human review.",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
         articles.append(
             {
                 "rank": rank,
@@ -52,6 +71,7 @@ def package(tmp_path):
                 "cta_body": "Review the filing path.",
                 "cta_url": "https://www.1099fire.com/contact.htm",
                 "sources": [["State filing guidance", "https://example.gov/information-returns.html"]],
+                "verification_file": verification_file,
             }
         )
     manifest = content / "articles.json"
@@ -92,6 +112,7 @@ def test_build_editorial_review_kit_writes_static_pages_without_side_effects(tmp
     assert validation["status"] == "ok"
     assert validation["article_count"] == 3
     assert validation["images_checked"] == 6
+    assert validation["claim_verification"]["needs_review_count"] == 3
     assert all(value is False for value in validation["side_effect_flags"].values())
 
 
@@ -103,6 +124,16 @@ def test_build_editorial_review_kit_refuses_overwrite(tmp_path):
         build_editorial_review_kit(manifest, tmp_path)
 
     assert (tmp_path / "index.html").read_text(encoding="utf-8") == "keep"
+
+
+def test_build_editorial_review_kit_requires_claim_verification_ledger(tmp_path):
+    manifest = package(tmp_path)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data["articles"][0].pop("verification_file")
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(EditorialReviewError, match="missing verification_file"):
+        build_editorial_review_kit(manifest, tmp_path)
 
 
 def test_build_editorial_review_kit_supports_short_and_full_reading_modes(tmp_path):
@@ -132,6 +163,8 @@ def test_build_editorial_review_kit_supports_short_and_full_reading_modes(tmp_pa
     assert "?view=full" in email_preview
     assert "Start here" in email_preview
     assert "3-draft review hub" in email_preview
+    assert "source-backed drafting" in (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert "compliance-reviewed language" not in (tmp_path / "index.html").read_text(encoding="utf-8")
     assert "<script" not in email_preview
     assert (tmp_path / "email-preview.txt").is_file()
     assert (tmp_path / "email-preview.json").is_file()
@@ -151,8 +184,8 @@ def test_editorial_email_uses_hosted_draft_links_and_is_idempotent(tmp_path):
         {
             "email_preview": True,
             "delivery_id": "run-123-editorial-v1",
-            "review_base_url": "https://reports.example.com/editorial",
-            "supporting_report_url": "https://reports.example.com/radar/",
+            "review_base_url": "https://review.radarwire.app/editorial",
+            "supporting_report_url": "https://review.radarwire.app/radar/",
             "email_subject": "1099FIRE: 3 blog drafts ready for review",
         }
     )
@@ -208,8 +241,8 @@ def test_editorial_email_uses_hosted_draft_links_and_is_idempotent(tmp_path):
     assert provider.calls == 1
     assert provider.message["Subject"] == "1099FIRE: 3 blog drafts ready for review"
     html_part = provider.message.get_body(preferencelist=("html",)).get_content()
-    assert "https://reports.example.com/editorial/article-1.html?view=quick" in html_part
-    assert "https://reports.example.com/radar/" in html_part
+    assert "https://review.radarwire.app/editorial/article-1.html?view=quick" in html_part
+    assert "https://review.radarwire.app/radar/" in html_part
 
 
 def test_editorial_email_preflight_requires_matching_hosted_review(tmp_path, monkeypatch):
@@ -219,8 +252,8 @@ def test_editorial_email_preflight_requires_matching_hosted_review(tmp_path, mon
         {
             "email_preview": True,
             "delivery_id": "run-123-editorial-v1",
-            "review_base_url": "https://reports.example.com/editorial",
-            "supporting_report_url": "https://reports.example.com/radar/",
+            "review_base_url": "https://review.radarwire.app/editorial",
+            "supporting_report_url": "https://review.radarwire.app/radar/",
         }
     )
     manifest.write_text(json.dumps(data), encoding="utf-8")
@@ -261,7 +294,7 @@ def test_editorial_email_preflight_requires_matching_hosted_review(tmp_path, mon
             "--review-dir",
             str(tmp_path),
             "--expected-review-url",
-            "https://reports.example.com/editorial/",
+            "https://review.radarwire.app/editorial/",
         ],
     )
     refused = runner.invoke(
@@ -273,7 +306,7 @@ def test_editorial_email_preflight_requires_matching_hosted_review(tmp_path, mon
             "--review-dir",
             str(tmp_path),
             "--expected-review-url",
-            "https://reports.example.com/stale/",
+            "https://review.radarwire.app/stale/",
         ],
     )
     no_send_flag = runner.invoke(
@@ -287,6 +320,92 @@ def test_editorial_email_preflight_requires_matching_hosted_review(tmp_path, mon
     assert json.loads(refused.output)["review_url_matches_expected"] is False
     assert no_send_flag.exit_code == 2
     assert "without --send" in no_send_flag.output
+
+
+@pytest.mark.parametrize(
+    ("old", "replacement", "message"),
+    [
+        ("https://review.radarwire.app/editorial/article-1.html?view=quick", "article-1.html?view=quick", "absolute HTTPS"),
+        ("https://review.radarwire.app/editorial/assets/hero-1.png", "http://localhost:8000/hero-1.png", "absolute HTTPS"),
+        ("https://review.radarwire.app/editorial/index.html", "https://reports.example.com/editorial/", "placeholder host"),
+    ],
+)
+def test_editorial_delivery_preflight_rejects_unsafe_outgoing_urls(tmp_path, old, replacement, message):
+    manifest = package(tmp_path)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data.update(
+        {
+            "email_preview": True,
+            "delivery_id": "run-123-editorial-v1",
+            "review_base_url": "https://review.radarwire.app/editorial",
+            "supporting_report_url": "https://review.radarwire.app/radar/",
+        }
+    )
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    build_editorial_review_kit(manifest, tmp_path)
+    email_path = tmp_path / "email-preview.html"
+    email_path.write_text(email_path.read_text(encoding="utf-8").replace(old, replacement, 1), encoding="utf-8")
+
+    email = SimpleNamespace(
+        sender_email="sender@radar.test",
+        recipient_email="recipient@client.test",
+        reply_to_email="reply@radar.test",
+        smtp_username_env="RADAR_SMTP_USERNAME",
+        smtp_password_env="RADAR_SMTP_PASSWORD",
+    )
+    cfg = SimpleNamespace(email=email)
+
+    with pytest.raises(ValueError, match=message):
+        editorial_delivery_preflight(cfg, tmp_path)
+
+
+def test_editorial_delivery_preflight_rejects_unsafe_text_link(tmp_path):
+    manifest = package(tmp_path)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data.update(
+        {
+            "email_preview": True,
+            "delivery_id": "run-123-editorial-v1",
+            "review_base_url": "https://review.radarwire.app/editorial",
+            "supporting_report_url": "https://review.radarwire.app/radar/",
+        }
+    )
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    build_editorial_review_kit(manifest, tmp_path)
+    text_path = tmp_path / "email-preview.txt"
+    text_path.write_text(text_path.read_text(encoding="utf-8") + "\nhttp://localhost:8000/broken\n", encoding="utf-8")
+
+    email = SimpleNamespace(
+        sender_email="sender@radar.test",
+        recipient_email="recipient@client.test",
+        reply_to_email="reply@radar.test",
+        smtp_username_env="RADAR_SMTP_USERNAME",
+        smtp_password_env="RADAR_SMTP_PASSWORD",
+    )
+
+    with pytest.raises(ValueError, match="absolute HTTPS"):
+        editorial_delivery_preflight(SimpleNamespace(email=email), tmp_path)
+
+
+def test_editorial_delivery_preflight_requires_claim_verification_summary(tmp_path):
+    manifest = package(tmp_path)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data.update(
+        {
+            "email_preview": True,
+            "delivery_id": "run-123-editorial-v1",
+            "review_base_url": "https://review.radarwire.app/editorial",
+        }
+    )
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    build_editorial_review_kit(manifest, tmp_path)
+    metadata_path = tmp_path / "email-preview.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata.pop("claim_verification")
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="claim-verification summary"):
+        editorial_delivery_preflight(SimpleNamespace(email=SimpleNamespace()), tmp_path)
 
 
 def test_build_editorial_review_kit_rejects_unreviewed_marker(tmp_path):

@@ -172,10 +172,14 @@ def test_generate_content_studio_writes_review_artifacts_without_side_effects(tm
         "briefs.md",
         "draft.json",
         "draft.md",
+        "verification.json",
         "review.html",
         "manifest.json",
     }
     assert "INTERNAL DRAFT - FACT CHECK REQUIRED" in (output / "draft.md").read_text(encoding="utf-8")
+    verification = json.loads((output / "verification.json").read_text(encoding="utf-8"))
+    assert {item["status"] for item in verification["claims"]} == {"needs_review"}
+    assert result["claim_verification"]["verified_count"] == 0
     assert "1099FIRE Content Studio" in (output / "review.html").read_text(encoding="utf-8")
     assert "Do not browse" in runner.calls[0][0]
     assert "Do not browse" in runner.calls[1][0]
@@ -217,13 +221,16 @@ def test_content_studio_expands_selected_existing_briefs_without_side_effects(tm
     assert {path.name for path in output.iterdir()} == {
         "draft-2.json",
         "draft-2.md",
+        "verification-2.json",
         "draft-3.json",
         "draft-3.md",
+        "verification-3.json",
         "manifest.json",
     }
     assert all(call[2] is DraftPackage for call in runner.calls)
     assert json.loads((output / "draft-2.json").read_text(encoding="utf-8"))["brief_rank"] == 2
     assert json.loads((output / "draft-3.json").read_text(encoding="utf-8"))["brief_rank"] == 3
+    assert all(item["needs_review_count"] == 2 for item in result["claim_verification"])
 
 
 def test_content_studio_expand_rejects_briefs_from_another_run(tmp_path):

@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from .analysis import build_oneshot_prompt, hermes_subprocess_env
+from .claim_verification import build_needs_review_ledger, validate_claim_verification
 
 
 class BlogBrief(BaseModel):
@@ -553,6 +554,12 @@ def generate_content_studio(
     _validate_client_brand(draft, cfg.client.name, competitor_brands)
     if len(set(draft.source_urls) & set(selected.source_urls)) < 2:
         raise ContentStudioError("Draft must retain at least two sources from its selected brief")
+    verification = build_needs_review_ledger(f"brief-{draft.brief_rank}", draft.factual_review_checklist)
+    _, verification_summary = validate_claim_verification(
+        verification.model_dump(mode="json"),
+        article_id=f"brief-{draft.brief_rank}",
+        allowed_source_urls=set(draft.source_urls),
+    )
 
     briefs_md = _briefs_markdown(brief_set)
     draft_md = _draft_markdown(draft, run_id)
@@ -566,18 +573,28 @@ def generate_content_studio(
         "hermes_duration_ms": brief_meta.get("duration_ms", 0) + draft_meta.get("duration_ms", 0),
         "repair_notes": brief_meta.get("repair_notes", []) + draft_meta.get("repair_notes", []),
         "schema_repair_used": bool(brief_meta.get("repair_used") or draft_meta.get("repair_used")),
-        "files": ["briefs.json", "briefs.md", "draft.json", "draft.md", "review.html", "manifest.json"],
+        "files": [
+            "briefs.json",
+            "briefs.md",
+            "draft.json",
+            "draft.md",
+            "verification.json",
+            "review.html",
+            "manifest.json",
+        ],
         "sends_email": False,
         "publishes": False,
         "deploys": False,
         "runs_discovery": False,
         "uses_sqlite": False,
         "requires_fact_check": True,
+        "claim_verification": verification_summary,
     }
     (output_dir / "briefs.json").write_text(brief_set.model_dump_json(indent=2), encoding="utf-8")
     (output_dir / "briefs.md").write_text(briefs_md, encoding="utf-8")
     (output_dir / "draft.json").write_text(draft.model_dump_json(indent=2), encoding="utf-8")
     (output_dir / "draft.md").write_text(draft_md, encoding="utf-8")
+    (output_dir / "verification.json").write_text(verification.model_dump_json(indent=2), encoding="utf-8")
     (output_dir / "review.html").write_text(_review_html(brief_set, draft, run_id), encoding="utf-8")
     (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return {**manifest, "output_dir": str(output_dir)}
@@ -620,6 +637,7 @@ def generate_content_studio_drafts(
     approved = _approved_urls(digest)
     competitor_brands = _competitor_brands(digest)
     drafts: list[DraftPackage] = []
+    verification_summaries: list[dict] = []
     metas: list[dict] = []
 
     for rank in requested:
@@ -639,13 +657,28 @@ def generate_content_studio_drafts(
         _validate_client_brand(draft, cfg.client.name, competitor_brands)
         if len(set(draft.source_urls) & selected_urls) < 2:
             raise ContentStudioError(f"Draft {rank} must retain at least two sources from its selected brief")
+        verification = build_needs_review_ledger(f"brief-{rank}", draft.factual_review_checklist)
+        _, verification_summary = validate_claim_verification(
+            verification.model_dump(mode="json"),
+            article_id=f"brief-{rank}",
+            allowed_source_urls=set(draft.source_urls),
+        )
         drafts.append(draft)
+        verification_summaries.append({"brief_rank": rank, **verification_summary})
         metas.append(draft_meta)
 
         (output_dir / f"draft-{rank}.json").write_text(draft.model_dump_json(indent=2), encoding="utf-8")
         (output_dir / f"draft-{rank}.md").write_text(_draft_markdown(draft, run_id), encoding="utf-8")
+        (output_dir / f"verification-{rank}.json").write_text(
+            verification.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
 
-    files = [name for rank in requested for name in (f"draft-{rank}.json", f"draft-{rank}.md")]
+    files = [
+        name
+        for rank in requested
+        for name in (f"draft-{rank}.json", f"draft-{rank}.md", f"verification-{rank}.json")
+    ]
     manifest = {
         "status": "generated",
         "client_name": brief_set.client_name,
@@ -663,6 +696,7 @@ def generate_content_studio_drafts(
         "runs_discovery": False,
         "uses_sqlite": False,
         "requires_fact_check": True,
+        "claim_verification": verification_summaries,
     }
     (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return {**manifest, "output_dir": str(output_dir)}

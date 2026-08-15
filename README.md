@@ -113,6 +113,8 @@ The command refuses source-warning digests and existing non-empty output folders
 
 Content Studio also rejects drafts that exceed the bounded reading length, overuse inline verification markers, cite URLs outside the source digest, name a competitor in client-facing prose or CTA, or fail to name the configured client in the CTA. Any bounded Hermes repair pass and deterministic list trim is disclosed in `manifest.json`.
 
+Every generated draft now receives a separate claim-verification ledger. Hermes-created factual-review items always begin as `needs_review`; only a named, timestamped human review may promote a claim to `verified`, and that status requires an allowed official `.gov` source plus a review note. `editorial-review-build` requires a ledger for every article, and SMTP preflight refuses editorial packages without a consistent aggregate verification summary.
+
 Expand one or more approved existing briefs without regenerating research or the brief set:
 
 ```powershell
@@ -184,6 +186,8 @@ Automatic email is a separate post-publish stage and is disabled by default. `co
 If the delivery config is already prepared and only the Gmail app password needs to be stored or replaced, run `scripts/windows/store-smtp-credential.ps1` (add `-Force` only to replace the existing local envelope). The helper hides input, removes Google's display spaces, requires exactly 16 characters, and sends no email.
 
 When `publish-weekly-report.ps1` is explicitly run with `-EnableEmailDelivery`, it publishes and verifies the hosted report first, loads the DPAPI credential into process-only environment variables, runs `email-delivery-preflight`, and then invokes one idempotent `deliver-report --send`. The preflight refuses placeholder addresses, loopback SMTP, missing credentials, non-TLS SMTP, missing report URLs, empty reports, warnings, and source errors. Delivery state is recorded as `pending_email`, `failed_email`, or `delivered`; retries accept `duplicate_skipped` as proof that an earlier send already completed.
+
+Client-facing editorial delivery additionally validates the final HTML and text artifacts, not only their metadata. Every review, Quick Read, Full Guide, supporting, and image URL must be absolute HTTPS and must not use a local or placeholder host; delivery fails closed when any required route is missing or unsafe.
 
 For client-facing scheduling, `-EnableEmailDelivery` also requires `-EditorialReviewDir` and `-EditorialReviewUrl`; the worker verifies the hosted editorial route and uses the editorial preflight and sender. The dense radar email is blocked by default and requires `-AllowRadarDigestEmail`, which is reserved for an explicitly approved internal research recipient.
 

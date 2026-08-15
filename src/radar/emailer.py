@@ -4,10 +4,13 @@ import hashlib
 import html as html_lib
 import json
 import os
+import re
 import smtplib
 from email.message import EmailMessage
 from pathlib import Path
 from urllib.parse import urlsplit
+
+from bs4 import BeautifulSoup
 
 from .models import utcnow
 
@@ -210,6 +213,60 @@ def editorial_message_key(delivery_id: str, recipient: str) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _safe_hosted_email_url(value: str, label: str) -> str:
+    parsed = urlsplit(value.strip())
+    host = (parsed.hostname or "").casefold().rstrip(".")
+    placeholder_hosts = {"example.com", "example.net", "example.org", "invalid"}
+    if parsed.scheme != "https" or not host or parsed.username or parsed.password:
+        raise ValueError(f"Editorial email {label} must be an absolute HTTPS URL")
+    if (
+        host in {"localhost", "127.0.0.1", "::1"}
+        or host.endswith((".localhost", ".local", ".test", ".invalid"))
+        or host in placeholder_hosts
+        or any(host.endswith(f".{suffix}") for suffix in placeholder_hosts)
+    ):
+        raise ValueError(f"Editorial email {label} uses a local or placeholder host")
+    return value.strip()
+
+
+def validate_editorial_email_urls(html: str, text: str, metadata: dict) -> dict:
+    concept_count = int(metadata.get("concept_count") or 0)
+    review_url = _safe_hosted_email_url(str(metadata.get("review_url") or ""), "review_url")
+    page = BeautifulSoup(html, "html.parser")
+    hrefs = [str(link.get("href") or "").strip() for link in page.select("a[href]")]
+    sources = [str(image.get("src") or "").strip() for image in page.select("img[src]")]
+    if not hrefs:
+        raise ValueError("Editorial email must contain hosted links")
+    for index, href in enumerate(hrefs, start=1):
+        _safe_hosted_email_url(href, f"link {index}")
+    for index, source in enumerate(sources, start=1):
+        _safe_hosted_email_url(source, f"image {index}")
+    text_urls = [match.rstrip(".,;:)") for match in re.findall(r"https?://\S+", text)]
+    for index, text_url in enumerate(text_urls, start=1):
+        _safe_hosted_email_url(text_url, f"text link {index}")
+
+    quick_links = [href for href in hrefs if "?view=quick" in href]
+    full_links = [href for href in hrefs if "?view=full" in href]
+    if len(quick_links) != concept_count or len(full_links) != concept_count:
+        raise ValueError("Editorial email must contain one hosted Quick Read and Full Guide link per concept")
+
+    normalized_review = review_url.rstrip("/")
+    valid_hub_urls = {normalized_review, f"{normalized_review}/", f"{normalized_review}/index.html"}
+    if not valid_hub_urls.intersection(hrefs):
+        raise ValueError("Editorial email is missing its hosted review hub link")
+    if review_url not in text and normalized_review not in text:
+        raise ValueError("Editorial email text preview is missing its hosted review URL")
+
+    return {
+        "hosted_link_count": len(hrefs),
+        "hosted_image_count": len(sources),
+        "text_link_count": len(text_urls),
+        "quick_read_link_count": len(quick_links),
+        "full_guide_link_count": len(full_links),
+        "all_urls_absolute_https": True,
+    }
+
+
 def load_editorial_email(review_dir: Path) -> tuple[str, str, dict, dict]:
     review_dir = review_dir.resolve()
     html_path = review_dir / "email-preview.html"
@@ -229,14 +286,27 @@ def load_editorial_email(review_dir: Path) -> tuple[str, str, dict, dict]:
         raise ValueError("Editorial email metadata requires an absolute HTTPS review_url")
     if metadata.get("concept_count", 0) <= 0:
         raise ValueError("Editorial email metadata requires at least one concept")
+    verification = metadata.get("claim_verification")
+    if not isinstance(verification, dict) or int(verification.get("claim_count") or 0) <= 0:
+        raise ValueError("Editorial email metadata requires a claim-verification summary")
+    verification_total = sum(
+        int(verification.get(key) or 0)
+        for key in ("verified_count", "needs_review_count", "editorial_count")
+    )
+    if verification_total != int(verification["claim_count"]):
+        raise ValueError("Editorial email claim-verification summary is inconsistent")
+    html = html_path.read_text(encoding="utf-8")
+    text = text_path.read_text(encoding="utf-8")
+    url_validation = validate_editorial_email_urls(html, text, metadata)
     artifacts = {
         "html_artifact": html_path.name,
         "text_artifact": text_path.name,
         "metadata_artifact": metadata_path.name,
+        **url_validation,
     }
     return (
-        html_path.read_text(encoding="utf-8"),
-        text_path.read_text(encoding="utf-8"),
+        html,
+        text,
         metadata,
         artifacts,
     )
@@ -253,6 +323,7 @@ def editorial_delivery_preflight(cfg, review_dir: Path) -> dict:
         "concept_count": metadata["concept_count"],
         "review_url": metadata["review_url"],
         "supporting_report_url": metadata.get("supporting_report_url"),
+        "claim_verification": metadata["claim_verification"],
         "review_dir": str(review_dir),
         "smtp_username_env_set": bool(os.getenv(cfg.email.smtp_username_env)) if cfg.email.smtp_username_env else False,
         "smtp_password_env_set": bool(os.getenv(cfg.email.smtp_password_env)) if cfg.email.smtp_password_env else False,

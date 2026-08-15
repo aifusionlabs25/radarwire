@@ -8,6 +8,8 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
+from .claim_verification import validate_claim_verification
+
 
 class EditorialReviewError(RuntimeError):
     pass
@@ -101,6 +103,43 @@ def _review_url(package: dict[str, Any], path: str) -> str:
     return f"{base_url}/{path}" if base_url else path
 
 
+def _verification_label(article: dict[str, Any]) -> str:
+    summary = article["_verification_summary"]
+    if summary["needs_review_count"]:
+        return f"{summary['needs_review_count']} factual item(s) need review"
+    if summary["verified_count"]:
+        return f"{summary['verified_count']} factual item(s) verified"
+    return "Editorial guidance only"
+
+
+def _load_article_verification(root: Path, article: dict[str, Any]) -> dict:
+    verification_file = str(article.get("verification_file") or "").strip()
+    if not verification_file:
+        raise EditorialReviewError(f"Article {article.get('rank')} is missing verification_file")
+    verification_path = _safe_file(root / verification_file, root, "claim verification ledger")
+    try:
+        data = json.loads(verification_path.read_text(encoding="utf-8"))
+        _, summary = validate_claim_verification(
+            data,
+            article_id=str(article["slug"]),
+            allowed_source_urls={str(url) for _label, url in article.get("sources", [])},
+        )
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise EditorialReviewError(f"Article {article.get('rank')} has an invalid verification ledger: {exc}") from exc
+    article["_verification_summary"] = summary
+    return summary
+
+
+def _verification_totals(articles: list[dict[str, Any]]) -> dict:
+    summaries = [article["_verification_summary"] for article in articles]
+    return {
+        "claim_count": sum(item["claim_count"] for item in summaries),
+        "verified_count": sum(item["verified_count"] for item in summaries),
+        "needs_review_count": sum(item["needs_review_count"] for item in summaries),
+        "editorial_count": sum(item["editorial_count"] for item in summaries),
+    }
+
+
 def _article_page(
     package: dict[str, Any],
     article: dict[str, Any],
@@ -159,7 +198,7 @@ def _article_page(
       <div class="eyebrow">Concept {article['rank']} of {len(package['articles'])} / {html.escape(article['label'])}</div>
       <h1>{html.escape(article['title'])}</h1>
       <p class="dek">{html.escape(article['dek'])}</p>
-      <div class="article-meta"><span data-active-read-time>{html.escape(article['read_time'])}</span><span>Reviewed {html.escape(package['current_as_of'])}</span><span>Draft for discussion</span></div>
+      <div class="article-meta"><span data-active-read-time>{html.escape(article['read_time'])}</span><span>{html.escape(_verification_label(article))}</span><span>Draft for discussion</span></div>
     </section>
     {reading_control}
     <section class="article-hero">
@@ -188,6 +227,7 @@ def _index_page(package: dict[str, Any]) -> str:
         f"<a class=\"concept-image\" href=\"{html.escape(article['slug'], quote=True)}.html?view=quick\">"
         f"<img src=\"{html.escape(article['hero'], quote=True)}\" alt=\"{html.escape(article['hero_alt'], quote=True)}\"></a>"
         f"<div class=\"concept-body\"><div class=\"eyebrow\">Concept {article['rank']} / {html.escape(article['label'])}</div>"
+        f"<div class=\"verification-status\">{html.escape(_verification_label(article))}</div>"
         f"<h2><a href=\"{html.escape(article['slug'], quote=True)}.html?view=quick\">{html.escape(article['title'])}</a></h2>"
         f"<p>{html.escape(article['dek'])}</p><div class=\"concept-actions\">"
         f"<a class=\"action-primary\" href=\"{html.escape(article['slug'], quote=True)}.html?view=quick\">Quick Read <span>{html.escape(article['read_time'])}</span></a>"
@@ -219,7 +259,7 @@ def _index_page(package: dict[str, Any]) -> str:
     <section class="review-intro"><div><div class="eyebrow">Weekly content shortlist / {html.escape(package['current_as_of'])}</div><h1>{html.escape(package['package_title'])}</h1><p>{html.escape(package['package_dek'])}</p></div><div class="review-count"><strong>{len(package['articles'])}</strong><span>drafts ready to review</span></div></section>
     <section class="start-here"><div><span>Start here</span><strong>Choose one direction that feels most useful to your customers.</strong></div><ol><li><b>1</b> Skim the three ideas</li><li><b>2</b> Open a Quick Read</li><li><b>3</b> Reply with your pick</li></ol></section>
     <section class="concept-grid" aria-label="Editorial concepts">{cards}</section>
-    <section class="review-note"><strong>For review, not publication</strong><div><p>Each concept includes original copy, compliance-reviewed language, SEO framing, commissioned visual mockups, and primary-source notes. Final brand and service-language approval remain publication gates.</p>{supporting_link}</div></section>
+    <section class="review-note"><strong>For review, not publication</strong><div><p>Each concept includes original copy, source-backed drafting, SEO framing, commissioned visual mockups, and primary-source review notes. Final factual, brand, and service-language approval remain publication gates.</p>{supporting_link}</div></section>
   </main>
   <footer><strong>1099FIRE editorial concept review</strong><span>Educational drafts. Confirm current requirements before publication.</span></footer>
 </body>
@@ -317,6 +357,7 @@ def _email_preview_metadata(package: dict[str, Any]) -> dict[str, Any]:
         "concept_count": len(package["articles"]),
         "review_url": _review_url(package, "index.html"),
         "supporting_report_url": package.get("supporting_report_url"),
+        "claim_verification": _verification_totals(package["articles"]),
         "html_artifact": "email-preview.html",
         "text_artifact": "email-preview.txt",
         "sends_email": False,
@@ -336,6 +377,7 @@ STYLES += ".brand .brand-check{color:var(--brand-green)}.brand .brand-inverse .b
 STYLES += """
 .start-here{padding:22px clamp(20px,6vw,90px);display:flex;align-items:center;justify-content:space-between;gap:30px;border-bottom:1px solid var(--line);background:#fff7df}.start-here>div{display:flex;flex-direction:column}.start-here>div span{font-size:11px;font-weight:800;text-transform:uppercase;color:#8a5d00}.start-here>div strong{font:700 20px/1.3 Georgia,serif}.start-here ol{display:flex;gap:22px;list-style:none;margin:0;padding:0;color:#4f5f70;font-size:13px}.start-here li{display:flex;align-items:center;gap:7px;white-space:nowrap}.start-here li b{display:inline-flex;align-items:center;justify-content:center;width:25px;height:25px;border-radius:50%;background:var(--navy);color:#fff;font-size:12px}.concept-actions{margin-top:auto;padding-top:17px;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:8px}.concept-actions a{min-height:52px;padding:9px 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:5px;text-align:center;text-decoration:none;font-size:13px;font-weight:800}.concept-actions a span{display:block;font-size:10px;font-weight:600}.action-primary{background:var(--brand-green-dark);color:#fff}.action-primary span{color:#dff4e6}.action-secondary{border:1px solid var(--line);color:var(--ink);background:#fff}.action-secondary span{color:var(--muted)}.review-note>div a{display:inline-block;margin-top:12px;color:var(--brand-green-dark);font-weight:800;text-decoration:none;border-bottom:2px solid var(--gold)}@media(max-width:920px){.start-here{align-items:flex-start;flex-direction:column}.start-here ol{width:100%;justify-content:space-between}}@media(max-width:620px){.start-here ol{align-items:flex-start;flex-direction:column;gap:10px}.start-here li{white-space:normal}.concept-actions{grid-template-columns:1fr}}
 """
+STYLES += ".verification-status{margin-top:10px;color:#765000;font-size:12px;font-weight:800}.article-meta .verification-status{margin:0}\n"
 STYLES = STYLES.replace("letter-spacing:.08em", "letter-spacing:0")
 
 
@@ -363,6 +405,9 @@ def build_editorial_review_kit(manifest_path: Path, output_dir: Path, *, overwri
     if not 1 <= len(articles) <= 6:
         raise EditorialReviewError("Review kit requires between 1 and 6 articles")
     package["articles"] = sorted(articles, key=lambda item: int(item["rank"]))
+    body_root = manifest_path.parent
+    for article in package["articles"]:
+        _load_article_verification(body_root, article)
 
     targets = [output_dir / "index.html", output_dir / "styles.css", output_dir / "review.js"]
     targets += [output_dir / f"{article['slug']}.html" for article in package["articles"]]
@@ -379,7 +424,6 @@ def build_editorial_review_kit(manifest_path: Path, output_dir: Path, *, overwri
     if existing and not overwrite:
         raise EditorialReviewError(f"Refusing to overwrite existing review-kit files: {existing}")
 
-    body_root = manifest_path.parent
     bodies: list[tuple[str, str | None]] = []
     for article in package["articles"]:
         body_path = _safe_file(body_root / article["body"], body_root, "article body")
@@ -426,6 +470,7 @@ def build_editorial_review_kit(manifest_path: Path, output_dir: Path, *, overwri
         "deploys": False,
         "runs_discovery": False,
         "uses_sqlite": False,
+        "claim_verification": _verification_totals(package["articles"]),
         "output_dir": str(output_dir),
     }
     (output_dir / "review-kit-manifest.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
@@ -441,11 +486,15 @@ def validate_editorial_review_kit(manifest_path: Path, output_dir: Path) -> dict
     articles = sorted(package.get("articles") or [], key=lambda item: int(item["rank"]))
     if not articles:
         raise EditorialReviewError("Review manifest has no articles")
+    for article in articles:
+        _load_article_verification(manifest_path.parent, article)
 
     index_path = _safe_file(output_dir / "index.html", output_dir, "review index")
     index = BeautifulSoup(index_path.read_text(encoding="utf-8"), "html.parser")
     if len(index.select(".concept-card")) != len(articles):
         raise EditorialReviewError("Review index card count does not match article count")
+    if len(index.select(".verification-status")) != len(articles):
+        raise EditorialReviewError("Review index is missing claim-verification status")
     if (
         index.select_one(".start-here") is None
         or len(index.select('.concept-actions a[href*="?view=quick"]')) != len(articles)
@@ -571,5 +620,6 @@ def validate_editorial_review_kit(manifest_path: Path, output_dir: Path) -> dict
         "dual_length_articles": sum(1 for article in articles if article.get("full_body")),
         "email_preview": bool(package.get("email_preview")),
         "email_links_checked": email_links_checked,
+        "claim_verification": _verification_totals(articles),
         "side_effect_flags": {key: False for key in side_effect_keys},
     }
