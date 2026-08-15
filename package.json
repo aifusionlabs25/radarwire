@@ -1,0 +1,11 @@
+{
+  "name": "radarwire-vercel-functions",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:api": "node --test --test-isolation=none tests-js/editorial_revision_core.test.mjs"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.0.0"
+  }
+}

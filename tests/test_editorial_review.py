@@ -177,6 +177,39 @@ def test_build_editorial_review_kit_supports_short_and_full_reading_modes(tmp_pa
     assert validation["email_links_checked"] == 7
 
 
+def test_editorial_review_kit_can_enable_private_revision_workspace(tmp_path):
+    manifest = package(tmp_path)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    full_body = tmp_path / "content" / "article-1-full.md"
+    full_body.write_text((tmp_path / "content" / "article-1.md").read_text(encoding="utf-8"), encoding="utf-8")
+    data.update(
+        {
+            "client_id": "amy-huffman",
+            "edition_id": "edition-2026-08-14",
+            "editorial_editing": True,
+            "revision_api": "/api/editorial-revisions",
+        }
+    )
+    data["articles"][0]["full_body"] = full_body.name
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+
+    result = build_editorial_review_kit(manifest, tmp_path)
+    page = (tmp_path / "article-1.html").read_text(encoding="utf-8")
+    script = (tmp_path / "review.js").read_text(encoding="utf-8")
+
+    assert result["editorial_editing"] is True
+    assert 'data-editorial-workspace' in page
+    assert 'data-editor-action="download"' in page
+    assert 'data-editor-voice-consent' in page
+    assert '"client_id": "amy-huffman"' in page
+    assert '"edition_id": "edition-2026-08-14"' in page
+    assert "Save to RadarWire and downloaded" not in script
+    assert "voice_library_consent" in script
+    assert "localStorage" in script
+    assert "application/msword" in script
+    assert validate_editorial_review_kit(manifest, tmp_path)["status"] == "ok"
+
+
 def test_editorial_email_uses_hosted_draft_links_and_is_idempotent(tmp_path):
     manifest = package(tmp_path)
     data = json.loads(manifest.read_text(encoding="utf-8"))

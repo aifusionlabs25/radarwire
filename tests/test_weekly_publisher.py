@@ -31,6 +31,10 @@ def test_weekly_publisher_has_clean_gates_resume_and_live_verification():
     assert "editorial-email-preflight" in script
     assert "deliver-editorial-review" in script
     assert "AllowRadarDigestEmail" in script
+    assert "Sync-DeploymentShell $ProjectRoot $SiteRoot" in script
+    assert "api\\editorial-revisions.js" in script
+    assert "api\\_editorial_revision_core.mjs" in script
+    assert "Copy-Item -LiteralPath $SourcePath -Destination $DestinationPath -Force" in script
 
 
 def test_weekly_task_is_sunday_evening_resumable_headless_publisher():
@@ -85,3 +89,34 @@ def test_local_capture_runner_uses_clean_child_environment():
     assert "System.Diagnostics.ProcessStartInfo" in script
     assert "Start-Process" not in script
     assert '"--report-url", $ReportUrl' in script
+
+
+def test_editorial_workspace_configurator_uses_dpapi_and_never_prints_token():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "scripts" / "windows" / "configure-editorial-workspace.ps1").read_text(encoding="utf-8")
+
+    assert "RandomNumberGenerator" in script
+    assert "ConvertFrom-SecureString" in script
+    assert "Windows DPAPI current user" in script
+    assert "RADAR_EDITORIAL_SAVE_TOKEN" in script
+    assert "vercel-env-stdin.mjs" in script
+    assert "RADAR_EDITORIAL_TEMP_INPUT" in script
+    assert "--sensitive" in script
+    assert "token_printed = $false" in script
+    assert "-not $Force" in script
+    assert "deliver-report" not in script
+    assert "Register-ScheduledTask" not in script
+
+
+def test_editorial_revision_smoke_uses_dpapi_and_cannot_seed_voice_library():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "scripts" / "windows" / "test-editorial-revision-api.ps1").read_text(encoding="utf-8")
+
+    assert "ConvertTo-SecureString" in script
+    assert "ZeroFreeBSTR" in script
+    assert "approval_status = 'submitted'" in script
+    assert "voice_library_consent = $false" in script
+    assert "voice_library_eligible" in script
+    assert "token_printed = $false" in script
+    assert "deliver-report" not in script
+    assert "Register-ScheduledTask" not in script

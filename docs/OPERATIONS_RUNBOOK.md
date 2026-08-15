@@ -135,6 +135,8 @@ The weekly publication lane is `publish-weekly-report.ps1`. It performs a strict
 For editorial-review delivery, preflight must also report `all_urls_absolute_https: true` with one Quick Read and one Full Guide link per concept. Relative, HTTP, localhost, test, and placeholder-host links in either the HTML or text artifact are live-send blockers.
 
 Each editorial article must also reference a claim-verification ledger. New model-generated checklist items start as `needs_review`; `verified` requires a named reviewer, timezone-aware review time, review note, and an official `.gov` URL already attached to the article's approved source list. Never promote a claim based on model confidence or a competitor source alone.
+
+For client editing and voice-library capture, follow `docs/EDITORIAL_WORKSPACE.md`. A download must be gated on a successful private revision save. Only an explicitly approved final revision may enter the Hermes voice corpus; browser autosaves and ordinary submissions are not training examples.
 6. Only after those checks, prepare the task with `-EnableEmailDelivery`, `-EditorialReviewDir`, and `-EditorialReviewUrl`, then inspect its WhatIf JSON. The worker blocks a client send when the editorial package is missing. Registering or replacing the persistent task remains a separate system-level approval.
 
 For a client expecting blog drafts, deliver the generated editorial review package rather than `digest_email.html`. Verify the hosted review hub first, then run `editorial-email-preflight --expected-review-url <stable-review-url>` and use `deliver-editorial-review` only after operator approval. The competitor radar belongs in `supporting_report_url` as an optional drill-down link.

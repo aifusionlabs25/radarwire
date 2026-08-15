@@ -57,6 +57,26 @@ function Invoke-NativeLogged([string]$Executable, [string[]]$Arguments, [string]
   }
 }
 
+function Sync-DeploymentShell([string]$SourceRoot, [string]$DestinationRoot) {
+  $Files = @(
+    'index.html',
+    'package.json',
+    'package-lock.json',
+    'api\editorial-revisions.js',
+    'api\_editorial_revision_core.mjs'
+  )
+  foreach ($RelativePath in $Files) {
+    $SourcePath = Join-Path $SourceRoot $RelativePath
+    if (-not (Test-Path -LiteralPath $SourcePath -PathType Leaf)) {
+      throw "Deployment shell source missing: $RelativePath"
+    }
+    $DestinationPath = Join-Path $DestinationRoot $RelativePath
+    $DestinationDirectory = Split-Path -Parent $DestinationPath
+    New-Item -ItemType Directory -Force -Path $DestinationDirectory | Out-Null
+    Copy-Item -LiteralPath $SourcePath -Destination $DestinationPath -Force
+  }
+}
+
 function Import-SmtpCredential([string]$Path) {
   $Envelope = Get-Content -Raw $Path | ConvertFrom-Json
   if ($Envelope.version -ne 1 -or $Envelope.protection -ne 'Windows DPAPI current user') {
@@ -192,6 +212,9 @@ try {
   if ($LocalMetadata.run_id -ne $RunId -or [int]$LocalMetadata.source_error_count -ne 0) {
     throw 'Export metadata did not pass run ID and source-error validation.'
   }
+
+  # Keep the stable site shell and private editorial API in every weekly artifact.
+  Sync-DeploymentShell $ProjectRoot $SiteRoot
 
   if ($NoDeploy) {
     Save-PublishState @{ status = 'exported_not_deployed'; run_id = $RunId; article_count = [int]$LocalMetadata.article_count; log_path = $LogPath; report_url = $ReportUrl }

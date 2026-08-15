@@ -233,6 +233,34 @@ def test_content_studio_expands_selected_existing_briefs_without_side_effects(tm
     assert all(item["needs_review_count"] == 2 for item in result["claim_verification"])
 
 
+def test_content_studio_passes_only_bounded_approved_voice_examples_to_hermes(tmp_path):
+    runner = FakeRunner()
+    output = tmp_path / "voice-draft"
+    voice_examples = [
+        {
+            "article_title": "Approved example",
+            "reading_mode": "short",
+            "approved_at": "2026-08-14T18:30:00Z",
+            "approved_text": "Amy's preferred clear, practical style.",
+        }
+    ]
+
+    result = generate_content_studio_drafts(
+        cfg(),
+        "run-1",
+        digest(),
+        BriefSet(client_name="1099FIRE", run_id="run-1", briefs=[brief(1), brief(2), brief(3)]),
+        output,
+        ranks=[1],
+        runner=runner,
+        voice_examples=voice_examples,
+    )
+
+    assert result["voice_example_count"] == 1
+    assert runner.calls[0][1]["approved_voice_examples"] == voice_examples
+    assert "style references only" in runner.calls[0][0]
+
+
 def test_content_studio_expand_rejects_briefs_from_another_run(tmp_path):
     brief_set = BriefSet(client_name="1099FIRE", run_id="other-run", briefs=[brief(1), brief(2), brief(3)])
 

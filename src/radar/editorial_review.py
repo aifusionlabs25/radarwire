@@ -112,6 +112,55 @@ def _verification_label(article: dict[str, Any]) -> str:
     return "Editorial guidance only"
 
 
+def _editorial_context(package: dict[str, Any], article: dict[str, Any]) -> dict[str, Any]:
+    client_name = str(package.get("client_name") or "client")
+    client_id = str(package.get("client_id") or re.sub(r"[^a-z0-9]+", "-", client_name.casefold())).strip("-")
+    edition_id = str(package.get("edition_id") or package.get("delivery_id") or "draft-edition")
+    return {
+        "schema_version": 1,
+        "client_id": client_id,
+        "client_name": client_name,
+        "edition_id": edition_id,
+        "article_slug": str(article["slug"]),
+        "article_title": str(article["title"]),
+        "revision_api": str(package.get("revision_api") or "/api/editorial-revisions"),
+        "download_basename": str(article["slug"]),
+        "voice_library_name": str(package.get("voice_library_name") or f"{client_name} voice library"),
+    }
+
+
+def _editorial_workspace(package: dict[str, Any], article: dict[str, Any]) -> str:
+    if not package.get("editorial_editing"):
+        return ""
+    context_json = json.dumps(_editorial_context(package, article), ensure_ascii=True).replace("</", "<\\/")
+    return f"""
+    <section class="editor-workspace" data-editorial-workspace aria-label="Draft editor">
+      <div class="editor-state"><span class="editor-state-mark" aria-hidden="true"></span><div><strong>Draft workspace</strong><span data-editor-status>Original draft</span></div></div>
+      <div class="editor-actions">
+        <button type="button" class="editor-button editor-button-primary" data-editor-action="edit">Edit draft</button>
+        <button type="button" class="editor-button" data-editor-action="undo" hidden>Undo</button>
+        <button type="button" class="editor-button" data-editor-action="reset" hidden>Restore original</button>
+        <button type="button" class="editor-button" data-editor-action="copy" hidden>Save &amp; copy</button>
+        <button type="button" class="editor-button editor-button-primary" data-editor-action="download" hidden>Save &amp; download</button>
+      </div>
+    </section>
+    <div class="editor-dialog-backdrop" data-editor-dialog hidden>
+      <section class="editor-dialog" role="dialog" aria-modal="true" aria-labelledby="editor-dialog-title">
+        <button type="button" class="editor-dialog-close" data-editor-cancel aria-label="Close">&times;</button>
+        <div class="eyebrow">Private editorial workspace</div>
+        <h2 id="editor-dialog-title">Save this revision</h2>
+        <p>Your edited copy will be saved privately in RadarWire before it is copied or downloaded.</p>
+        <label class="editor-field"><span>Private review code</span><input type="password" data-editor-token autocomplete="current-password" required></label>
+        <label class="editor-consent"><input type="checkbox" data-editor-voice-consent><span><strong>Approved for future voice matching</strong>RadarWire may use this finished version as a writing example for future {html.escape(str(package.get('client_name') or 'client'))} drafts.</span></label>
+        <div class="editor-dialog-actions"><button type="button" class="editor-button" data-editor-cancel>Cancel</button><button type="button" class="editor-button editor-button-primary" data-editor-submit>Save revision</button></div>
+        <div class="editor-error" data-editor-error role="alert" hidden></div>
+      </section>
+    </div>
+    <div class="editor-toast" data-editor-toast role="status" aria-live="polite" hidden></div>
+    <script type="application/json" id="editorial-context">{context_json}</script>
+    """
+
+
 def _load_article_verification(root: Path, article: dict[str, Any]) -> dict:
     verification_file = str(article.get("verification_file") or "").strip()
     if not verification_file:
@@ -178,6 +227,7 @@ def _article_page(
     else:
         reading_control = ""
         article_content = f'<article class="article-copy">{_markdown_blocks(body, article)}{_sources(article)}</article>'
+    editorial_workspace = _editorial_workspace(package, article)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -201,6 +251,7 @@ def _article_page(
       <div class="article-meta"><span data-active-read-time>{html.escape(article['read_time'])}</span><span>{html.escape(_verification_label(article))}</span><span>Draft for discussion</span></div>
     </section>
     {reading_control}
+    {editorial_workspace}
     <section class="article-hero">
       <img src="{html.escape(article['hero'], quote=True)}" alt="{html.escape(article['hero_alt'], quote=True)}">
       <a class="continue-link" href="#article-start" aria-label="Continue to article"><span aria-hidden="true">&darr;</span></a>
@@ -378,12 +429,193 @@ STYLES += """
 .start-here{padding:22px clamp(20px,6vw,90px);display:flex;align-items:center;justify-content:space-between;gap:30px;border-bottom:1px solid var(--line);background:#fff7df}.start-here>div{display:flex;flex-direction:column}.start-here>div span{font-size:11px;font-weight:800;text-transform:uppercase;color:#8a5d00}.start-here>div strong{font:700 20px/1.3 Georgia,serif}.start-here ol{display:flex;gap:22px;list-style:none;margin:0;padding:0;color:#4f5f70;font-size:13px}.start-here li{display:flex;align-items:center;gap:7px;white-space:nowrap}.start-here li b{display:inline-flex;align-items:center;justify-content:center;width:25px;height:25px;border-radius:50%;background:var(--navy);color:#fff;font-size:12px}.concept-actions{margin-top:auto;padding-top:17px;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:8px}.concept-actions a{min-height:52px;padding:9px 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:5px;text-align:center;text-decoration:none;font-size:13px;font-weight:800}.concept-actions a span{display:block;font-size:10px;font-weight:600}.action-primary{background:var(--brand-green-dark);color:#fff}.action-primary span{color:#dff4e6}.action-secondary{border:1px solid var(--line);color:var(--ink);background:#fff}.action-secondary span{color:var(--muted)}.review-note>div a{display:inline-block;margin-top:12px;color:var(--brand-green-dark);font-weight:800;text-decoration:none;border-bottom:2px solid var(--gold)}@media(max-width:920px){.start-here{align-items:flex-start;flex-direction:column}.start-here ol{width:100%;justify-content:space-between}}@media(max-width:620px){.start-here ol{align-items:flex-start;flex-direction:column;gap:10px}.start-here li{white-space:normal}.concept-actions{grid-template-columns:1fr}}
 """
 STYLES += ".verification-status{margin-top:10px;color:#765000;font-size:12px;font-weight:800}.article-meta .verification-status{margin:0}\n"
+STYLES += """
+.editor-workspace{max-width:1100px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;justify-content:space-between;gap:18px;border-bottom:1px solid var(--line);background:#eef8f0}.editor-state{display:flex;align-items:center;gap:11px;min-width:0}.editor-state-mark{width:10px;height:10px;flex:0 0 auto;border-radius:50%;background:var(--brand-green);box-shadow:0 0 0 4px rgba(7,143,36,.11)}.editor-state>div{display:flex;flex-direction:column;min-width:0}.editor-state strong{font:700 16px/1.2 Georgia,serif}.editor-state span:last-child{overflow:hidden;color:var(--muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}.editor-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}.editor-button{min-height:38px;padding:8px 12px;border:1px solid #9cafb5;border-radius:5px;background:#fff;color:var(--ink);font:800 12px/1 Aptos,"Segoe UI",Arial,sans-serif;letter-spacing:0;cursor:pointer}.editor-button:hover{border-color:var(--brand-green-dark);color:var(--brand-green-dark)}.editor-button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}.editor-button-primary{border-color:var(--brand-green-dark);background:var(--brand-green-dark);color:#fff}.editor-button-primary:hover{background:#056b2d;color:#fff}.editor-button[disabled]{cursor:wait;opacity:.65}.article-copy.is-editing{min-height:280px;padding:26px;border:2px solid var(--brand-green);background:#fbfffc;box-shadow:inset 0 0 0 4px rgba(7,143,36,.06);outline:0}.article-copy.is-editing:focus{border-color:var(--teal);box-shadow:inset 0 0 0 4px rgba(10,139,136,.08)}.editor-dialog-backdrop{position:fixed;inset:0;z-index:40;display:grid;place-items:center;padding:20px;background:rgba(16,24,32,.68)}.editor-dialog-backdrop[hidden]{display:none!important}.editor-dialog{position:relative;width:min(100%,560px);max-height:calc(100vh - 40px);overflow:auto;padding:30px;border-radius:8px;background:#fff;box-shadow:0 24px 70px rgba(0,0,0,.28)}.editor-dialog h2{margin:7px 0 8px;font:700 31px/1.12 Georgia,serif}.editor-dialog>p{margin:0 0 22px;color:var(--muted)}.editor-dialog-close{position:absolute;top:10px;right:12px;width:36px;height:36px;border:0;background:transparent;color:var(--muted);font-size:28px;line-height:1;cursor:pointer}.editor-field{display:grid;gap:7px}.editor-field span{font-size:12px;font-weight:800}.editor-field input{width:100%;min-height:45px;padding:10px 12px;border:1px solid #9cafb5;border-radius:5px;font:16px/1 Aptos,"Segoe UI",Arial,sans-serif}.editor-field input:focus{border-color:var(--teal);outline:3px solid rgba(10,139,136,.16)}.editor-consent{display:grid;grid-template-columns:20px 1fr;gap:10px;margin:20px 0;padding:16px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);cursor:pointer}.editor-consent input{width:18px;height:18px;margin:2px 0 0;accent-color:var(--brand-green-dark)}.editor-consent span{display:flex;flex-direction:column;color:var(--muted);font-size:13px}.editor-consent strong{margin-bottom:3px;color:var(--ink);font-size:14px}.editor-dialog-actions{display:flex;justify-content:flex-end;gap:8px}.editor-error{margin-top:14px;padding:10px 12px;border-left:4px solid var(--coral);background:#fff2ef;color:#7a2e20;font-size:13px;font-weight:700}.editor-toast{position:fixed;right:20px;bottom:20px;z-index:50;max-width:380px;padding:13px 16px;border-radius:6px;background:var(--navy);color:#fff;box-shadow:var(--shadow);font-size:13px;font-weight:800}.editor-toast[hidden],.editor-error[hidden],.editor-button[hidden]{display:none!important}.editor-unsaved .editor-state-mark{background:var(--gold);box-shadow:0 0 0 4px rgba(231,173,47,.16)}body.editor-dialog-open{overflow:hidden}@media(max-width:760px){.editor-workspace{align-items:flex-start;flex-direction:column;padding:14px 20px}.editor-actions{width:100%;justify-content:flex-start}.editor-button{flex:1 1 auto}.article-copy.is-editing{padding:18px}.editor-dialog{padding:25px 20px}.editor-dialog-actions{display:grid;grid-template-columns:1fr 1fr}.editor-toast{left:16px;right:16px;bottom:16px;max-width:none}}@media print{.editor-workspace,.editor-dialog-backdrop,.editor-toast{display:none!important}.article-copy.is-editing{padding:0;border:0;background:transparent;box-shadow:none}}
+"""
 STYLES = STYLES.replace("letter-spacing:.08em", "letter-spacing:0")
 
 
 SCRIPT = """(() => { const bar = document.querySelector('.reading-progress span'); if (!bar) return; const update = () => { const max = document.documentElement.scrollHeight - innerHeight; bar.style.width = `${max > 0 ? (scrollY / max) * 100 : 0}%`; }; addEventListener('scroll', update, {passive:true}); addEventListener('resize', update); update(); })();\n"""
 SCRIPT += """(() => { const buttons = [...document.querySelectorAll('[data-reading-target]')]; if (!buttons.length) return; const copies = [...document.querySelectorAll('[data-reading-copy]')]; const time = document.querySelector('[data-active-read-time]'); const activate = (mode) => { buttons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.readingTarget === mode))); copies.forEach((copy) => { copy.hidden = copy.dataset.readingCopy !== mode; }); const active = buttons.find((button) => button.dataset.readingTarget === mode); const activeTime = active?.querySelector('span')?.textContent; if (time && activeTime) time.textContent = activeTime; document.documentElement.dataset.readingMode = mode; dispatchEvent(new Event('resize')); }; buttons.forEach((button) => button.addEventListener('click', () => activate(button.dataset.readingTarget))); activate('short'); })();\n"""
 SCRIPT += """(() => { const buttons = [...document.querySelectorAll('[data-reading-target]')]; if (!buttons.length) return; const requested = new URLSearchParams(location.search).get('view'); const initialMode = requested === 'full' ? 'full' : 'short'; const initial = buttons.find((button) => button.dataset.readingTarget === initialMode); if (initialMode === 'full') initial?.click(); buttons.forEach((button) => button.addEventListener('click', () => { const url = new URL(location.href); url.searchParams.set('view', button.dataset.readingTarget === 'full' ? 'full' : 'quick'); history.replaceState({}, '', url); })); })();\n"""
+SCRIPT += r"""(() => {
+  const workspace = document.querySelector('[data-editorial-workspace]');
+  const contextNode = document.getElementById('editorial-context');
+  if (!workspace || !contextNode) return;
+  const context = JSON.parse(contextNode.textContent);
+  const copies = Object.fromEntries([...document.querySelectorAll('[data-reading-copy]')].map((node) => [node.dataset.readingCopy, node]));
+  if (!Object.keys(copies).length) {
+    const single = document.querySelector('.article-copy');
+    if (single) copies.short = single;
+  }
+  const originals = Object.fromEntries(Object.entries(copies).map(([mode, node]) => [mode, node.innerHTML]));
+  const status = workspace.querySelector('[data-editor-status]');
+  const actions = Object.fromEntries([...workspace.querySelectorAll('[data-editor-action]')].map((node) => [node.dataset.editorAction, node]));
+  const dialog = document.querySelector('[data-editor-dialog]');
+  const tokenInput = dialog?.querySelector('[data-editor-token]');
+  const voiceConsent = dialog?.querySelector('[data-editor-voice-consent]');
+  const submit = dialog?.querySelector('[data-editor-submit]');
+  const error = dialog?.querySelector('[data-editor-error]');
+  const toast = document.querySelector('[data-editor-toast]');
+  const storageKey = `radarwire:draft:${context.client_id}:${context.edition_id}:${context.article_slug}`;
+  const tokenKey = `radarwire:editor-token:${context.client_id}`;
+  let editing = false;
+  let pendingAction = null;
+  let toastTimer = null;
+
+  const activeMode = () => document.documentElement.dataset.readingMode === 'full' && copies.full ? 'full' : 'short';
+  const activeCopy = () => copies[activeMode()];
+  const safeStorage = (storage, operation, fallback = null) => { try { return operation(storage); } catch (_) { return fallback; } };
+  const savedDrafts = safeStorage(localStorage, (store) => JSON.parse(store.getItem(storageKey) || '{}'), {});
+  Object.entries(savedDrafts || {}).forEach(([mode, value]) => { if (copies[mode] && typeof value === 'string') copies[mode].innerHTML = value; });
+
+  const hasChanges = () => Object.entries(copies).some(([mode, node]) => node.innerHTML !== originals[mode]);
+  const announce = (message) => {
+    if (!toast) return;
+    toast.textContent = message;
+    toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast.hidden = true; }, 4200);
+  };
+  const updateStatus = (message) => {
+    const changed = hasChanges();
+    workspace.classList.toggle('editor-unsaved', changed);
+    status.textContent = message || (changed ? 'Changes saved in this browser' : 'Original draft');
+  };
+  const persistLocal = () => {
+    const values = Object.fromEntries(Object.entries(copies).map(([mode, node]) => [mode, node.innerHTML]));
+    safeStorage(localStorage, (store) => store.setItem(storageKey, JSON.stringify(values)));
+    updateStatus();
+  };
+  const setEditing = (enabled) => {
+    editing = enabled;
+    Object.values(copies).forEach((node) => {
+      node.contentEditable = enabled ? 'true' : 'false';
+      node.classList.toggle('is-editing', enabled);
+      node.setAttribute('spellcheck', enabled ? 'true' : 'false');
+    });
+    actions.edit.textContent = enabled ? 'Finish editing' : 'Edit draft';
+    ['undo', 'reset', 'copy', 'download'].forEach((name) => { actions[name].hidden = !enabled; });
+    if (enabled) activeCopy()?.focus();
+    updateStatus(enabled ? `Editing ${activeMode() === 'full' ? 'Full Guide' : 'Quick Read'}` : null);
+  };
+  const sanitize = (node) => {
+    const clone = node.cloneNode(true);
+    clone.querySelectorAll('script,style,iframe,object,embed,form,input,button').forEach((item) => item.remove());
+    clone.querySelectorAll('*').forEach((item) => [...item.attributes].forEach((attribute) => {
+      if (attribute.name.toLowerCase().startsWith('on')) item.removeAttribute(attribute.name);
+      if (attribute.name === 'contenteditable' || attribute.name === 'spellcheck') item.removeAttribute(attribute.name);
+    }));
+    clone.querySelectorAll('img[src]').forEach((image) => { image.src = new URL(image.getAttribute('src'), location.href).href; });
+    return clone;
+  };
+  const plainText = (node) => node.innerText.replace(/\n{3,}/g, '\n\n').trim();
+  const wordDocument = (cleanCopy) => `<!doctype html><html><head><meta charset="utf-8"><title>${context.article_title}</title><style>body{max-width:720px;margin:48px auto;color:#15243a;font:11.5pt/1.6 Georgia,serif}h1{font-size:25pt;line-height:1.15}h2{margin-top:28px;font-size:17pt}h3{font-size:13pt}img{max-width:100%;height:auto}figcaption{color:#5e6b7c;font-size:9pt}li{margin-bottom:6px}.note{margin-bottom:30px;padding-bottom:14px;border-bottom:2px solid #078f24;color:#5e6b7c;font:9pt/1.4 Arial,sans-serif}</style></head><body><div class="note">${context.client_name} editorial revision | ${new Date().toLocaleDateString()}</div><h1>${context.article_title}</h1>${cleanCopy.innerHTML}</body></html>`;
+  const downloadCopy = (cleanCopy) => {
+    const blob = new Blob([wordDocument(cleanCopy)], { type: 'application/msword;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${context.download_basename}-${activeMode() === 'full' ? 'full-guide' : 'quick-read'}.doc`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  };
+  const copyToClipboard = async (cleanCopy) => {
+    const text = plainText(cleanCopy);
+    if (navigator.clipboard && window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+        'text/html': new Blob([cleanCopy.innerHTML], { type: 'text/html' }),
+      })]);
+      return;
+    }
+    await navigator.clipboard.writeText(text);
+  };
+  const closeDialog = () => {
+    if (!dialog) return;
+    dialog.hidden = true;
+    document.body.classList.remove('editor-dialog-open');
+    if (error) error.hidden = true;
+  };
+  const openDialog = (action) => {
+    pendingAction = action;
+    dialog.hidden = false;
+    document.body.classList.add('editor-dialog-open');
+    if (error) error.hidden = true;
+    const existing = safeStorage(sessionStorage, (store) => store.getItem(tokenKey), '');
+    tokenInput.value = existing || '';
+    voiceConsent.checked = false;
+    tokenInput.focus();
+  };
+  const saveRevision = async () => {
+    const token = tokenInput.value.trim();
+    if (!token) throw new Error('Enter the private review code.');
+    const mode = activeMode();
+    const cleanCopy = sanitize(copies[mode]);
+    const originalHolder = document.createElement('div');
+    originalHolder.innerHTML = originals[mode];
+    const cleanOriginal = sanitize(originalHolder);
+    const payload = {
+      schema_version: 1,
+      client_id: context.client_id,
+      client_name: context.client_name,
+      edition_id: context.edition_id,
+      article_slug: context.article_slug,
+      article_title: context.article_title,
+      reading_mode: mode,
+      original_html: cleanOriginal.innerHTML,
+      original_text: plainText(cleanOriginal),
+      edited_html: cleanCopy.innerHTML,
+      edited_text: plainText(cleanCopy),
+      approval_status: voiceConsent.checked ? 'approved_final' : 'submitted',
+      voice_library_consent: voiceConsent.checked,
+      consent_notice: 'Saved privately in RadarWire; approved versions may be used for future client voice matching.',
+      source_url: location.href,
+    };
+    const response = await fetch(context.revision_api, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if (response.status === 401) safeStorage(sessionStorage, (store) => store.removeItem(tokenKey));
+      throw new Error(result.error || `RadarWire could not save this revision (${response.status}).`);
+    }
+    safeStorage(sessionStorage, (store) => store.setItem(tokenKey, token));
+    closeDialog();
+    updateStatus(`Saved to RadarWire at ${new Date(result.saved_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
+    if (pendingAction === 'download') downloadCopy(cleanCopy);
+    if (pendingAction === 'copy') await copyToClipboard(cleanCopy);
+    announce(pendingAction === 'download' ? 'Saved to RadarWire and downloaded.' : 'Saved to RadarWire and copied.');
+  };
+
+  Object.values(copies).forEach((node) => node.addEventListener('input', persistLocal));
+  actions.edit.addEventListener('click', () => setEditing(!editing));
+  actions.undo.addEventListener('click', () => { activeCopy()?.focus(); document.execCommand('undo'); persistLocal(); });
+  actions.reset.addEventListener('click', () => {
+    if (!confirm(`Restore the original ${activeMode() === 'full' ? 'Full Guide' : 'Quick Read'}?`)) return;
+    copies[activeMode()].innerHTML = originals[activeMode()];
+    persistLocal();
+    announce('Original draft restored.');
+  });
+  actions.copy.addEventListener('click', () => openDialog('copy'));
+  actions.download.addEventListener('click', () => openDialog('download'));
+  dialog?.querySelectorAll('[data-editor-cancel]').forEach((button) => button.addEventListener('click', closeDialog));
+  dialog?.addEventListener('click', (event) => { if (event.target === dialog) closeDialog(); });
+  submit?.addEventListener('click', async () => {
+    submit.disabled = true;
+    if (error) error.hidden = true;
+    try { await saveRevision(); }
+    catch (problem) { if (error) { error.textContent = problem.message; error.hidden = false; } }
+    finally { submit.disabled = false; }
+  });
+  tokenInput?.addEventListener('keydown', (event) => { if (event.key === 'Enter') submit?.click(); });
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && dialog && !dialog.hidden) closeDialog(); });
+  updateStatus();
+})();
+"""
 
 
 def _safe_file(path: Path, root: Path, label: str) -> Path:
@@ -464,6 +696,7 @@ def build_editorial_review_kit(manifest_path: Path, output_dir: Path, *, overwri
         "status": "generated",
         "article_count": len(package["articles"]),
         "email_preview": bool(package.get("email_preview")),
+        "editorial_editing": bool(package.get("editorial_editing")),
         "files": [path.name for path in targets],
         "sends_email": False,
         "publishes": False,
@@ -554,6 +787,14 @@ def validate_editorial_review_kit(manifest_path: Path, output_dir: Path) -> dict
             raise EditorialReviewError(f"Article {article['rank']} has an incomplete heading structure")
         if page.select_one('meta[name="viewport"]') is None:
             raise EditorialReviewError(f"Article {article['rank']} is missing responsive viewport metadata")
+        if package.get("editorial_editing"):
+            if (
+                page.select_one("[data-editorial-workspace]") is None
+                or page.select_one("#editorial-context") is None
+                or page.select_one('[data-editor-action="download"]') is None
+                or page.select_one("[data-editor-voice-consent]") is None
+            ):
+                raise EditorialReviewError(f"Article {article['rank']} is missing the private editorial workspace")
         if any(
             re.search(
                 r"TaxBandits|Tax1099|BoomTax|eFileMyForms|Sovos|Avalara",

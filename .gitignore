@@ -7,6 +7,9 @@ __pycache__/
 build/
 dist/
 
+# Node/Vercel function dependencies
+node_modules/
+
 # Local/runtime radar state
 .radar-data/
 *.db

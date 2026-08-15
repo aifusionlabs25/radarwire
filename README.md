@@ -227,4 +227,6 @@ Keep target swaps config-only whenever possible:
 
 ## Future migration reference only
 
+Private client editing, immutable revision capture, and approved Hermes voice examples are documented in `docs/EDITORIAL_WORKSPACE.md`.
+
 Cloud worker and container notes live in `docs/DEPLOYMENT.md` and `docs/MIGRATION_LOCAL_TO_CLOUD.md` as **future migration reference only**. The approved pilot still runs discovery and Hermes locally; Vercel hosts only the generated static review pages. Do not move the crawler, Hermes worker, SQLite state, or scheduler into cloud infrastructure without a separate migration decision.
