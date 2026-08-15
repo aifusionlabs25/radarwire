@@ -135,22 +135,23 @@ def _editorial_workspace(package: dict[str, Any], article: dict[str, Any]) -> st
     context_json = json.dumps(_editorial_context(package, article), ensure_ascii=True).replace("</", "<\\/")
     return f"""
     <section class="editor-workspace" data-editorial-workspace aria-label="Draft editor">
-      <div class="editor-state"><span class="editor-state-mark" aria-hidden="true"></span><div><strong>Draft workspace</strong><span data-editor-status>Original draft</span></div></div>
       <div class="editor-actions">
+        <button type="button" class="editor-button editor-button-primary" data-editor-action="download-original">Download Word (.doc)</button>
         <button type="button" class="editor-button editor-button-primary" data-editor-action="edit">Edit draft</button>
         <button type="button" class="editor-button" data-editor-action="undo" hidden>Undo</button>
         <button type="button" class="editor-button" data-editor-action="reset" hidden>Restore original</button>
         <button type="button" class="editor-button" data-editor-action="copy" hidden>Save &amp; copy</button>
         <button type="button" class="editor-button editor-button-primary" data-editor-action="download" hidden>Save &amp; download</button>
       </div>
+      <div class="editor-state"><span class="editor-state-mark" aria-hidden="true"></span><div><strong>Draft workspace</strong><span data-editor-status>Original draft</span></div></div>
     </section>
     <div class="editor-dialog-backdrop" data-editor-dialog hidden>
       <section class="editor-dialog" role="dialog" aria-modal="true" aria-labelledby="editor-dialog-title">
         <button type="button" class="editor-dialog-close" data-editor-cancel aria-label="Close">&times;</button>
         <div class="eyebrow">Private editorial workspace</div>
-        <h2 id="editor-dialog-title">Save this revision</h2>
-        <p>Your edited copy will be saved privately in RadarWire before it is copied or downloaded.</p>
-        <label class="editor-field"><span>Private review code</span><input type="password" data-editor-token autocomplete="current-password" required></label>
+        <h2 id="editor-dialog-title">Save your changes</h2>
+        <p>RadarWire saves a private copy of your edited draft before it is copied or downloaded.</p>
+        <label class="editor-field"><span>Review access code</span><input type="password" data-editor-token autocomplete="current-password" aria-describedby="editor-code-help" required><small id="editor-code-help">Use the private code provided with this review link. It is a password, not a filename.</small></label>
         <label class="editor-consent"><input type="checkbox" data-editor-voice-consent><span><strong>Approved for future voice matching</strong>RadarWire may use this finished version as a writing example for future {html.escape(str(package.get('client_name') or 'client'))} drafts.</span></label>
         <div class="editor-dialog-actions"><button type="button" class="editor-button" data-editor-cancel>Cancel</button><button type="button" class="editor-button editor-button-primary" data-editor-submit>Save revision</button></div>
         <div class="editor-error" data-editor-error role="alert" hidden></div>
@@ -430,7 +431,7 @@ STYLES += """
 """
 STYLES += ".verification-status{margin-top:10px;color:#765000;font-size:12px;font-weight:800}.article-meta .verification-status{margin:0}\n"
 STYLES += """
-.editor-workspace{max-width:1100px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;justify-content:space-between;gap:18px;border-bottom:1px solid var(--line);background:#eef8f0}.editor-state{display:flex;align-items:center;gap:11px;min-width:0}.editor-state-mark{width:10px;height:10px;flex:0 0 auto;border-radius:50%;background:var(--brand-green);box-shadow:0 0 0 4px rgba(7,143,36,.11)}.editor-state>div{display:flex;flex-direction:column;min-width:0}.editor-state strong{font:700 16px/1.2 Georgia,serif}.editor-state span:last-child{overflow:hidden;color:var(--muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}.editor-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}.editor-button{min-height:38px;padding:8px 12px;border:1px solid #9cafb5;border-radius:5px;background:#fff;color:var(--ink);font:800 12px/1 Aptos,"Segoe UI",Arial,sans-serif;letter-spacing:0;cursor:pointer}.editor-button:hover{border-color:var(--brand-green-dark);color:var(--brand-green-dark)}.editor-button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}.editor-button-primary{border-color:var(--brand-green-dark);background:var(--brand-green-dark);color:#fff}.editor-button-primary:hover{background:#056b2d;color:#fff}.editor-button[disabled]{cursor:wait;opacity:.65}.article-copy.is-editing{min-height:280px;padding:26px;border:2px solid var(--brand-green);background:#fbfffc;box-shadow:inset 0 0 0 4px rgba(7,143,36,.06);outline:0}.article-copy.is-editing:focus{border-color:var(--teal);box-shadow:inset 0 0 0 4px rgba(10,139,136,.08)}.editor-dialog-backdrop{position:fixed;inset:0;z-index:40;display:grid;place-items:center;padding:20px;background:rgba(16,24,32,.68)}.editor-dialog-backdrop[hidden]{display:none!important}.editor-dialog{position:relative;width:min(100%,560px);max-height:calc(100vh - 40px);overflow:auto;padding:30px;border-radius:8px;background:#fff;box-shadow:0 24px 70px rgba(0,0,0,.28)}.editor-dialog h2{margin:7px 0 8px;font:700 31px/1.12 Georgia,serif}.editor-dialog>p{margin:0 0 22px;color:var(--muted)}.editor-dialog-close{position:absolute;top:10px;right:12px;width:36px;height:36px;border:0;background:transparent;color:var(--muted);font-size:28px;line-height:1;cursor:pointer}.editor-field{display:grid;gap:7px}.editor-field span{font-size:12px;font-weight:800}.editor-field input{width:100%;min-height:45px;padding:10px 12px;border:1px solid #9cafb5;border-radius:5px;font:16px/1 Aptos,"Segoe UI",Arial,sans-serif}.editor-field input:focus{border-color:var(--teal);outline:3px solid rgba(10,139,136,.16)}.editor-consent{display:grid;grid-template-columns:20px 1fr;gap:10px;margin:20px 0;padding:16px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);cursor:pointer}.editor-consent input{width:18px;height:18px;margin:2px 0 0;accent-color:var(--brand-green-dark)}.editor-consent span{display:flex;flex-direction:column;color:var(--muted);font-size:13px}.editor-consent strong{margin-bottom:3px;color:var(--ink);font-size:14px}.editor-dialog-actions{display:flex;justify-content:flex-end;gap:8px}.editor-error{margin-top:14px;padding:10px 12px;border-left:4px solid var(--coral);background:#fff2ef;color:#7a2e20;font-size:13px;font-weight:700}.editor-toast{position:fixed;right:20px;bottom:20px;z-index:50;max-width:380px;padding:13px 16px;border-radius:6px;background:var(--navy);color:#fff;box-shadow:var(--shadow);font-size:13px;font-weight:800}.editor-toast[hidden],.editor-error[hidden],.editor-button[hidden]{display:none!important}.editor-unsaved .editor-state-mark{background:var(--gold);box-shadow:0 0 0 4px rgba(231,173,47,.16)}body.editor-dialog-open{overflow:hidden}@media(max-width:760px){.editor-workspace{align-items:flex-start;flex-direction:column;padding:14px 20px}.editor-actions{width:100%;justify-content:flex-start}.editor-button{flex:1 1 auto}.article-copy.is-editing{padding:18px}.editor-dialog{padding:25px 20px}.editor-dialog-actions{display:grid;grid-template-columns:1fr 1fr}.editor-toast{left:16px;right:16px;bottom:16px;max-width:none}}@media print{.editor-workspace,.editor-dialog-backdrop,.editor-toast{display:none!important}.article-copy.is-editing{padding:0;border:0;background:transparent;box-shadow:none}}
+.editor-workspace{max-width:1100px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;justify-content:space-between;gap:18px;border-bottom:1px solid var(--line);background:#eef8f0}.editor-state{display:flex;align-items:center;gap:11px;min-width:0}.editor-state-mark{width:10px;height:10px;flex:0 0 auto;border-radius:50%;background:var(--brand-green);box-shadow:0 0 0 4px rgba(7,143,36,.11)}.editor-state>div{display:flex;flex-direction:column;min-width:0}.editor-state strong{font:700 16px/1.2 Georgia,serif}.editor-state span:last-child{overflow:hidden;color:var(--muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}.editor-actions{display:flex;align-items:center;justify-content:flex-start;gap:7px;flex-wrap:wrap}.editor-button{min-height:38px;padding:8px 12px;border:1px solid #9cafb5;border-radius:5px;background:#fff;color:var(--ink);font:800 12px/1 Aptos,"Segoe UI",Arial,sans-serif;letter-spacing:0;cursor:pointer}.editor-button:hover{border-color:var(--brand-green-dark);color:var(--brand-green-dark)}.editor-button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}.editor-button-primary{border-color:var(--brand-green-dark);background:var(--brand-green-dark);color:#fff}.editor-button-primary:hover{background:#056b2d;color:#fff}.editor-button[disabled]{cursor:wait;opacity:.65}.article-copy.is-editing{min-height:280px;padding:26px;border:2px solid var(--brand-green);background:#fbfffc;box-shadow:inset 0 0 0 4px rgba(7,143,36,.06);outline:0}.article-copy.is-editing:focus{border-color:var(--teal);box-shadow:inset 0 0 0 4px rgba(10,139,136,.08)}.editor-dialog-backdrop{position:fixed;inset:0;z-index:40;display:grid;place-items:center;padding:20px;background:rgba(16,24,32,.68)}.editor-dialog-backdrop[hidden]{display:none!important}.editor-dialog{position:relative;width:min(100%,560px);max-height:calc(100vh - 40px);overflow:auto;padding:30px;border-radius:8px;background:#fff;box-shadow:0 24px 70px rgba(0,0,0,.28)}.editor-dialog h2{margin:7px 0 8px;font:700 31px/1.12 Georgia,serif}.editor-dialog>p{margin:0 0 22px;color:var(--muted)}.editor-dialog-close{position:absolute;top:10px;right:12px;width:36px;height:36px;border:0;background:transparent;color:var(--muted);font-size:28px;line-height:1;cursor:pointer}.editor-field{display:grid;gap:7px}.editor-field span{font-size:12px;font-weight:800}.editor-field small{color:var(--muted);font-size:12px;line-height:1.45}.editor-field input{width:100%;min-height:45px;padding:10px 12px;border:1px solid #9cafb5;border-radius:5px;font:16px/1 Aptos,"Segoe UI",Arial,sans-serif}.editor-field input:focus{border-color:var(--teal);outline:3px solid rgba(10,139,136,.16)}.editor-consent{display:grid;grid-template-columns:20px 1fr;gap:10px;margin:20px 0;padding:16px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);cursor:pointer}.editor-consent input{width:18px;height:18px;margin:2px 0 0;accent-color:var(--brand-green-dark)}.editor-consent span{display:flex;flex-direction:column;color:var(--muted);font-size:13px}.editor-consent strong{margin-bottom:3px;color:var(--ink);font-size:14px}.editor-dialog-actions{display:flex;justify-content:flex-end;gap:8px}.editor-error{margin-top:14px;padding:10px 12px;border-left:4px solid var(--coral);background:#fff2ef;color:#7a2e20;font-size:13px;font-weight:700}.editor-toast{position:fixed;right:20px;bottom:20px;z-index:50;max-width:380px;padding:13px 16px;border-radius:6px;background:var(--navy);color:#fff;box-shadow:var(--shadow);font-size:13px;font-weight:800}.editor-toast[hidden],.editor-error[hidden],.editor-button[hidden]{display:none!important}.editor-unsaved .editor-state-mark{background:var(--gold);box-shadow:0 0 0 4px rgba(231,173,47,.16)}body.editor-dialog-open{overflow:hidden}@media(max-width:760px){.editor-workspace{align-items:flex-start;flex-direction:column;padding:14px 20px}.editor-actions{width:100%;justify-content:flex-start}.editor-button{flex:1 1 auto}.editor-state{order:2}.article-copy.is-editing{padding:18px}.editor-dialog{padding:25px 20px}.editor-dialog-actions{display:grid;grid-template-columns:1fr 1fr}.editor-toast{left:16px;right:16px;bottom:16px;max-width:none}}@media print{.editor-workspace,.editor-dialog-backdrop,.editor-toast{display:none!important}.article-copy.is-editing{padding:0;border:0;background:transparent;box-shadow:none}}
 """
 STYLES = STYLES.replace("letter-spacing:.08em", "letter-spacing:0")
 
@@ -495,6 +496,7 @@ SCRIPT += r"""(() => {
       node.setAttribute('spellcheck', enabled ? 'true' : 'false');
     });
     actions.edit.textContent = enabled ? 'Finish editing' : 'Edit draft';
+    actions['download-original'].hidden = enabled;
     ['undo', 'reset', 'copy', 'download'].forEach((name) => { actions[name].hidden = !enabled; });
     if (enabled) activeCopy()?.focus();
     updateStatus(enabled ? `Editing ${activeMode() === 'full' ? 'Full Guide' : 'Quick Read'}` : null);
@@ -540,6 +542,7 @@ SCRIPT += r"""(() => {
   };
   const openDialog = (action) => {
     pendingAction = action;
+    submit.textContent = action === 'download' ? 'Save & download Word' : 'Save & copy';
     dialog.hidden = false;
     document.body.classList.add('editor-dialog-open');
     if (error) error.hidden = true;
@@ -592,6 +595,12 @@ SCRIPT += r"""(() => {
   };
 
   Object.values(copies).forEach((node) => node.addEventListener('input', persistLocal));
+  actions['download-original'].addEventListener('click', () => {
+    const originalHolder = document.createElement('div');
+    originalHolder.innerHTML = originals[activeMode()];
+    downloadCopy(sanitize(originalHolder));
+    announce('Word document downloaded.');
+  });
   actions.edit.addEventListener('click', () => setEditing(!editing));
   actions.undo.addEventListener('click', () => { activeCopy()?.focus(); document.execCommand('undo'); persistLocal(); });
   actions.reset.addEventListener('click', () => {
@@ -791,6 +800,7 @@ def validate_editorial_review_kit(manifest_path: Path, output_dir: Path) -> dict
             if (
                 page.select_one("[data-editorial-workspace]") is None
                 or page.select_one("#editorial-context") is None
+                or page.select_one('[data-editor-action="download-original"]') is None
                 or page.select_one('[data-editor-action="download"]') is None
                 or page.select_one("[data-editor-voice-consent]") is None
             ):

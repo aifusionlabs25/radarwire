@@ -199,11 +199,17 @@ def test_editorial_review_kit_can_enable_private_revision_workspace(tmp_path):
 
     assert result["editorial_editing"] is True
     assert 'data-editorial-workspace' in page
+    assert 'data-editor-action="download-original"' in page
+    assert "Download Word (.doc)" in page
     assert 'data-editor-action="download"' in page
     assert 'data-editor-voice-consent' in page
+    assert "Review access code" in page
+    assert "It is a password, not a filename." in page
     assert '"client_id": "amy-huffman"' in page
     assert '"edition_id": "edition-2026-08-14"' in page
     assert "Save to RadarWire and downloaded" not in script
+    assert "actions['download-original'].addEventListener" in script
+    assert "Save & download Word" in script
     assert "voice_library_consent" in script
     assert "localStorage" in script
     assert "application/msword" in script
