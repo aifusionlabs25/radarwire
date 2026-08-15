@@ -124,6 +124,7 @@ def _editorial_context(package: dict[str, Any], article: dict[str, Any]) -> dict
         "article_slug": str(article["slug"]),
         "article_title": str(article["title"]),
         "revision_api": str(package.get("revision_api") or "/api/editorial-revisions"),
+        "status_api": str(package.get("status_api") or "/api/editorial-status"),
         "download_basename": str(article["slug"]),
         "voice_library_name": str(package.get("voice_library_name") or f"{client_name} voice library"),
     }
@@ -135,9 +136,16 @@ def _editorial_workspace(package: dict[str, Any], article: dict[str, Any]) -> st
     context_json = json.dumps(_editorial_context(package, article), ensure_ascii=True).replace("</", "<\\/")
     return f"""
     <section class="editor-workspace" data-editorial-workspace aria-label="Draft editor">
+      <div class="editor-choice" data-editor-choice-panel>
+        <div><strong data-editor-choice-heading>Like this direction?</strong><span data-editor-choice-help>Choose it for this week so we can keep future ideas fresh.</span></div>
+        <div class="editor-choice-actions">
+          <button type="button" class="editor-button editor-button-choice" data-editor-choice="select">Choose this topic</button>
+          <button type="button" class="editor-button" data-editor-choice="publish" hidden>Mark as published</button>
+        </div>
+      </div>
       <div class="editor-actions">
-        <button type="button" class="editor-button editor-button-primary" data-editor-action="download-original">Download Word (.doc)</button>
-        <button type="button" class="editor-button editor-button-primary" data-editor-action="edit">Edit draft</button>
+        <button type="button" class="editor-button" data-editor-action="download-original">Download Word (.doc)</button>
+        <button type="button" class="editor-button" data-editor-action="edit">Edit draft</button>
         <button type="button" class="editor-button" data-editor-action="undo" hidden>Undo</button>
         <button type="button" class="editor-button" data-editor-action="reset" hidden>Restore original</button>
         <button type="button" class="editor-button" data-editor-action="copy" hidden>Save &amp; copy</button>
@@ -152,9 +160,21 @@ def _editorial_workspace(package: dict[str, Any], article: dict[str, Any]) -> st
         <h2 id="editor-dialog-title">Save your changes</h2>
         <p>RadarWire saves a private copy of your edited draft before it is copied or downloaded.</p>
         <label class="editor-field"><span>Review access code</span><input type="password" data-editor-token autocomplete="current-password" aria-describedby="editor-code-help" required><small id="editor-code-help">Use the private code provided with this review link. It is a password, not a filename.</small></label>
-        <label class="editor-consent"><input type="checkbox" data-editor-voice-consent><span><strong>Approved for future voice matching</strong>RadarWire may use this finished version as a writing example for future {html.escape(str(package.get('client_name') or 'client'))} drafts.</span></label>
+        <label class="editor-consent"><input type="checkbox" data-editor-voice-consent><span><strong>Help future drafts sound more like {html.escape(str(package.get('client_name') or 'the client'))}</strong>Use this finished version as a writing example. Leave this unchecked if you only want to save your changes.</span></label>
         <div class="editor-dialog-actions"><button type="button" class="editor-button" data-editor-cancel>Cancel</button><button type="button" class="editor-button editor-button-primary" data-editor-submit>Save revision</button></div>
         <div class="editor-error" data-editor-error role="alert" hidden></div>
+      </section>
+    </div>
+    <div class="editor-dialog-backdrop" data-status-dialog hidden>
+      <section class="editor-dialog status-dialog" role="dialog" aria-modal="true" aria-labelledby="status-dialog-title">
+        <button type="button" class="editor-dialog-close" data-status-cancel aria-label="Close">&times;</button>
+        <div class="eyebrow">Weekly content choice</div>
+        <h2 id="status-dialog-title" data-status-title>Choose this topic?</h2>
+        <p data-status-description>We will remember your choice so this topic is not repeated in a future weekly list.</p>
+        <label class="editor-field" data-published-url-field hidden><span>Link to the published article</span><input type="url" data-published-url inputmode="url" placeholder="https://1099fire.com/..." autocomplete="url"><small>Paste the page address after the article is live.</small></label>
+        <label class="editor-field"><span>Private review code</span><input type="password" data-status-token autocomplete="current-password" required><small>Use the same private code provided with this review.</small></label>
+        <div class="editor-dialog-actions"><button type="button" class="editor-button" data-status-cancel>Cancel</button><button type="button" class="editor-button editor-button-choice" data-status-submit>Choose this topic</button></div>
+        <div class="editor-error" data-status-error role="alert" hidden></div>
       </section>
     </div>
     <div class="editor-toast" data-editor-toast role="status" aria-live="polite" hidden></div>
@@ -311,7 +331,7 @@ def _index_page(package: dict[str, Any]) -> str:
   </header>
   <main>
     <section class="review-intro"><div><div class="eyebrow">Weekly content shortlist / {html.escape(package['current_as_of'])}</div><h1>{html.escape(package['package_title'])}</h1><p>{html.escape(package['package_dek'])}</p></div><div class="review-count"><strong>{len(package['articles'])}</strong><span>drafts ready to review</span></div></section>
-    <section class="start-here"><div><span>Start here</span><strong>Choose one direction that feels most useful to your customers.</strong></div><ol><li><b>1</b> Skim the three ideas</li><li><b>2</b> Open a Quick Read</li><li><b>3</b> Reply with your pick</li></ol></section>
+    <section class="start-here"><div><span>Start here</span><strong>Choose one direction that feels most useful to your customers.</strong></div><ol><li><b>1</b> Skim the three ideas</li><li><b>2</b> Open a Quick Read</li><li><b>3</b> Choose your topic</li></ol></section>
     <section class="concept-grid" aria-label="Editorial concepts">{cards}</section>
     <section class="review-note"><strong>For review, not publication</strong><div><p>Each concept includes original copy, source-backed drafting, SEO framing, commissioned visual mockups, and primary-source review notes. Final factual, brand, and service-language approval remain publication gates.</p>{supporting_link}</div></section>
   </main>
@@ -352,7 +372,7 @@ def _email_preview_page(package: dict[str, Any]) -> str:
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>1099FIRE weekly content shortlist</title><style>@media(max-width:620px){{.email-shell{{padding:0!important}}.email-card{{border-radius:0!important}}.email-pad{{padding-left:20px!important;padding-right:20px!important}}.concept-image-cell,.concept-copy-cell{{display:block!important;width:auto!important;padding:16px!important}}.concept-image-cell img{{width:100%!important;height:auto!important;max-height:210px!important}}}}</style></head>
 <body style="margin:0;background:#e9f0ee;color:#15243a;">
-  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Three blog drafts are ready. Start with a Quick Read and reply with your preferred direction.</div>
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Three blog drafts are ready. Start with a Quick Read and choose your preferred direction.</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:#e9f0ee;"><tr><td class="email-shell" style="padding:28px 12px;">
     <table class="email-card" role="presentation" width="700" align="center" cellpadding="0" cellspacing="0" style="width:100%;max-width:700px;margin:0 auto;border-collapse:separate;border-spacing:0;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 12px 30px rgba(21,36,58,.10);">
       <tr><td class="email-pad" style="padding:20px 34px;background:#078f24;color:#fff;">
@@ -362,10 +382,10 @@ def _email_preview_page(package: dict[str, Any]) -> str:
       <tr><td class="email-pad" style="padding:34px 34px 28px;background:#153858;color:#fff;">
         <div style="font:800 11px Arial,sans-serif;color:#9edbd5;text-transform:uppercase;">Weekly content shortlist &nbsp;|&nbsp; {html.escape(package['current_as_of'])}</div>
         <h1 style="margin:10px 0 12px;font:700 36px/1.08 Georgia,serif;color:#fff;">Three blog drafts ready for your review</h1>
-        <p style="margin:0;font:16px/1.55 Arial,sans-serif;color:#dce8ed;">You do not need to read everything. Start with any Quick Read below, then reply with the direction that feels most useful to your customers.</p>
+        <p style="margin:0;font:16px/1.55 Arial,sans-serif;color:#dce8ed;">You do not need to read everything. Start with any Quick Read below, then use Choose this topic on the one that feels most useful to your customers.</p>
       </td></tr>
       <tr><td class="email-pad" style="padding:22px 34px 6px;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:0;background:#fff7df;border:1px solid #ead18a;border-radius:6px;"><tr><td style="padding:15px 17px;font:14px/1.5 Arial,sans-serif;color:#5b4617;"><strong style="color:#15243a;">Start here:</strong>&nbsp; Skim the three ideas &rarr; open one Quick Read &rarr; reply with your favorite.</td></tr></table>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:0;background:#fff7df;border:1px solid #ead18a;border-radius:6px;"><tr><td style="padding:15px 17px;font:14px/1.5 Arial,sans-serif;color:#5b4617;"><strong style="color:#15243a;">Start here:</strong>&nbsp; Skim the three ideas &rarr; open one Quick Read &rarr; choose your topic.</td></tr></table>
       </td></tr>
       <tr><td class="email-pad" style="padding:18px 34px 10px;">
         {''.join(concepts)}
@@ -383,7 +403,7 @@ def _email_preview_text(package: dict[str, Any]) -> str:
         "1099FIRE WEEKLY CONTENT SHORTLIST",
         "",
         "Three blog drafts are ready for review.",
-        "Start here: skim the ideas, open one Quick Read, then reply with your favorite.",
+        "Start here: skim the ideas, open one Quick Read, then choose your topic on the page.",
         "",
     ]
     for article in package["articles"]:
@@ -434,6 +454,9 @@ STYLES += """
 STYLES += ".verification-status{margin-top:10px;color:#765000;font-size:12px;font-weight:800}.article-meta .verification-status{margin:0}\n"
 STYLES += """
 .editor-workspace{max-width:1100px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;justify-content:space-between;gap:18px;border-bottom:1px solid var(--line);background:#eef8f0}.editor-state{display:flex;align-items:center;gap:11px;min-width:0}.editor-state-mark{width:10px;height:10px;flex:0 0 auto;border-radius:50%;background:var(--brand-green);box-shadow:0 0 0 4px rgba(7,143,36,.11)}.editor-state>div{display:flex;flex-direction:column;min-width:0}.editor-state strong{font:700 16px/1.2 Georgia,serif}.editor-state span:last-child{overflow:hidden;color:var(--muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}.editor-actions{display:flex;align-items:center;justify-content:flex-start;gap:7px;flex-wrap:wrap}.editor-button{min-height:38px;padding:8px 12px;border:1px solid #9cafb5;border-radius:5px;background:#fff;color:var(--ink);font:800 12px/1 Aptos,"Segoe UI",Arial,sans-serif;letter-spacing:0;cursor:pointer}.editor-button:hover{border-color:var(--brand-green-dark);color:var(--brand-green-dark)}.editor-button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}.editor-button-primary{border-color:var(--brand-green-dark);background:var(--brand-green-dark);color:#fff}.editor-button-primary:hover{background:#056b2d;color:#fff}.editor-button[disabled]{cursor:wait;opacity:.65}.article-copy.is-editing{min-height:280px;padding:26px;border:2px solid var(--brand-green);background:#fbfffc;box-shadow:inset 0 0 0 4px rgba(7,143,36,.06);outline:0}.article-copy.is-editing:focus{border-color:var(--teal);box-shadow:inset 0 0 0 4px rgba(10,139,136,.08)}.editor-dialog-backdrop{position:fixed;inset:0;z-index:40;display:grid;place-items:center;padding:20px;background:rgba(16,24,32,.68)}.editor-dialog-backdrop[hidden]{display:none!important}.editor-dialog{position:relative;width:min(100%,560px);max-height:calc(100vh - 40px);overflow:auto;padding:30px;border-radius:8px;background:#fff;box-shadow:0 24px 70px rgba(0,0,0,.28)}.editor-dialog h2{margin:7px 0 8px;font:700 31px/1.12 Georgia,serif}.editor-dialog>p{margin:0 0 22px;color:var(--muted)}.editor-dialog-close{position:absolute;top:10px;right:12px;width:36px;height:36px;border:0;background:transparent;color:var(--muted);font-size:28px;line-height:1;cursor:pointer}.editor-field{display:grid;gap:7px}.editor-field span{font-size:12px;font-weight:800}.editor-field small{color:var(--muted);font-size:12px;line-height:1.45}.editor-field input{width:100%;min-height:45px;padding:10px 12px;border:1px solid #9cafb5;border-radius:5px;font:16px/1 Aptos,"Segoe UI",Arial,sans-serif}.editor-field input:focus{border-color:var(--teal);outline:3px solid rgba(10,139,136,.16)}.editor-consent{display:grid;grid-template-columns:20px 1fr;gap:10px;margin:20px 0;padding:16px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);cursor:pointer}.editor-consent input{width:18px;height:18px;margin:2px 0 0;accent-color:var(--brand-green-dark)}.editor-consent span{display:flex;flex-direction:column;color:var(--muted);font-size:13px}.editor-consent strong{margin-bottom:3px;color:var(--ink);font-size:14px}.editor-dialog-actions{display:flex;justify-content:flex-end;gap:8px}.editor-error{margin-top:14px;padding:10px 12px;border-left:4px solid var(--coral);background:#fff2ef;color:#7a2e20;font-size:13px;font-weight:700}.editor-toast{position:fixed;right:20px;bottom:20px;z-index:50;max-width:380px;padding:13px 16px;border-radius:6px;background:var(--navy);color:#fff;box-shadow:var(--shadow);font-size:13px;font-weight:800}.editor-toast[hidden],.editor-error[hidden],.editor-button[hidden]{display:none!important}.editor-unsaved .editor-state-mark{background:var(--gold);box-shadow:0 0 0 4px rgba(231,173,47,.16)}body.editor-dialog-open{overflow:hidden}@media(max-width:760px){.editor-workspace{align-items:flex-start;flex-direction:column;padding:14px 20px}.editor-actions{width:100%;justify-content:flex-start}.editor-button{flex:1 1 auto}.editor-state{order:2}.article-copy.is-editing{padding:18px}.editor-dialog{padding:25px 20px}.editor-dialog-actions{display:grid;grid-template-columns:1fr 1fr}.editor-toast{left:16px;right:16px;bottom:16px;max-width:none}}@media print{.editor-workspace,.editor-dialog-backdrop,.editor-toast{display:none!important}.article-copy.is-editing{padding:0;border:0;background:transparent;box-shadow:none}}
+"""
+STYLES += """
+.editor-workspace{align-items:stretch;display:grid;grid-template-columns:minmax(250px,1fr) auto;grid-template-areas:"choice choice" "actions state";padding-top:18px;padding-bottom:18px}.editor-choice{grid-area:choice;display:flex;align-items:center;justify-content:space-between;gap:20px;padding-bottom:16px;border-bottom:1px solid #c7ded0}.editor-choice>div:first-child{display:flex;flex-direction:column}.editor-choice strong{font:700 19px/1.25 Georgia,serif}.editor-choice span{margin-top:3px;color:var(--muted);font-size:13px}.editor-choice-actions{display:flex;gap:8px;flex-wrap:wrap}.editor-actions{grid-area:actions;padding-top:12px}.editor-state{grid-area:state;align-self:center;margin-top:12px}.editor-button-choice{border-color:var(--brand-green-dark);background:var(--brand-green-dark);color:#fff}.editor-button-choice:hover{border-color:#056b2d;background:#056b2d;color:#fff}.editor-choice.is-selected{background:#f6fbf7}.editor-choice.is-selected .editor-button-choice{background:#fff;color:var(--brand-green-dark)}[data-published-url-field]{margin-bottom:18px}[data-published-url-field][hidden]{display:none!important}.status-dialog .editor-dialog-actions{margin-top:22px}@media(max-width:760px){.editor-workspace{grid-template-columns:1fr;grid-template-areas:"choice" "actions" "state"}.editor-choice{align-items:flex-start;flex-direction:column}.editor-choice-actions{width:100%}.editor-choice-actions .editor-button{flex:1 1 auto}.editor-state{order:initial}}
 """
 STYLES = STYLES.replace("letter-spacing:.08em", "letter-spacing:0")
 
@@ -632,6 +655,123 @@ SCRIPT += r"""(() => {
   updateStatus();
 })();
 """
+SCRIPT += r"""(() => {
+  const workspace = document.querySelector('[data-editorial-workspace]');
+  const contextNode = document.getElementById('editorial-context');
+  const dialog = document.querySelector('[data-status-dialog]');
+  if (!workspace || !contextNode || !dialog) return;
+  const context = JSON.parse(contextNode.textContent);
+  const panel = workspace.querySelector('[data-editor-choice-panel]');
+  const heading = panel.querySelector('[data-editor-choice-heading]');
+  const help = panel.querySelector('[data-editor-choice-help]');
+  const selectButton = panel.querySelector('[data-editor-choice="select"]');
+  const publishButton = panel.querySelector('[data-editor-choice="publish"]');
+  const title = dialog.querySelector('[data-status-title]');
+  const description = dialog.querySelector('[data-status-description]');
+  const urlField = dialog.querySelector('[data-published-url-field]');
+  const urlInput = dialog.querySelector('[data-published-url]');
+  const tokenInput = dialog.querySelector('[data-status-token]');
+  const submit = dialog.querySelector('[data-status-submit]');
+  const error = dialog.querySelector('[data-status-error]');
+  const toast = document.querySelector('[data-editor-toast]');
+  const tokenKey = `radarwire:editor-token:${context.client_id}`;
+  const stateKey = `radarwire:editor-status:${context.client_id}:${context.edition_id}:${context.article_slug}`;
+  let pendingStatus = 'selected';
+  let toastTimer = null;
+  const safeStorage = (storage, operation, fallback = null) => { try { return operation(storage); } catch (_) { return fallback; } };
+  const announce = (message) => {
+    if (!toast) return;
+    toast.textContent = message;
+    toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast.hidden = true; }, 4200);
+  };
+  const renderState = (state) => {
+    const selected = state === 'selected' || state === 'published';
+    panel.classList.toggle('is-selected', selected);
+    selectButton.textContent = selected ? 'Chosen for this week' : 'Choose this topic';
+    selectButton.disabled = selected;
+    publishButton.hidden = !selected || state === 'published';
+    heading.textContent = state === 'published' ? 'Published and remembered' : selected ? 'This topic is chosen' : 'Like this direction?';
+    help.textContent = state === 'published'
+      ? 'We saved the live link and will use it to avoid repeating this topic.'
+      : selected
+        ? 'When the article goes live, add its link so next week stays fresh.'
+        : 'Choose it for this week so we can keep future ideas fresh.';
+  };
+  const closeDialog = () => {
+    dialog.hidden = true;
+    document.body.classList.remove('editor-dialog-open');
+    error.hidden = true;
+  };
+  const openDialog = (status) => {
+    pendingStatus = status;
+    const publishing = status === 'published';
+    title.textContent = publishing ? 'Is the article live?' : 'Choose this topic?';
+    description.textContent = publishing
+      ? 'Add the live article link. We will remember what was published so future weekly ideas do not repeat it.'
+      : 'We will remember your choice for this week. Nothing will be published or emailed from this button.';
+    urlField.hidden = !publishing;
+    urlInput.required = publishing;
+    urlInput.value = '';
+    submit.textContent = publishing ? 'Save published link' : 'Choose this topic';
+    tokenInput.value = safeStorage(sessionStorage, (store) => store.getItem(tokenKey), '') || '';
+    dialog.hidden = false;
+    document.body.classList.add('editor-dialog-open');
+    error.hidden = true;
+    (publishing ? urlInput : tokenInput).focus();
+  };
+  const saveStatus = async () => {
+    const token = tokenInput.value.trim();
+    if (!token) throw new Error('Enter the private review code.');
+    const publishedUrl = urlInput.value.trim();
+    if (pendingStatus === 'published') {
+      let parsed;
+      try { parsed = new URL(publishedUrl); } catch { throw new Error('Paste the full published page link.'); }
+      if (parsed.protocol !== 'https:') throw new Error('The published page link must start with https://');
+    }
+    const response = await fetch(context.status_api, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({
+        schema_version: 1,
+        client_id: context.client_id,
+        client_name: context.client_name,
+        edition_id: context.edition_id,
+        article_slug: context.article_slug,
+        article_title: context.article_title,
+        status: pendingStatus,
+        source_url: location.href,
+        published_url: pendingStatus === 'published' ? publishedUrl : null,
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if (response.status === 401) safeStorage(sessionStorage, (store) => store.removeItem(tokenKey));
+      throw new Error(result.error || `RadarWire could not save this choice (${response.status}).`);
+    }
+    safeStorage(sessionStorage, (store) => store.setItem(tokenKey, token));
+    safeStorage(localStorage, (store) => store.setItem(stateKey, pendingStatus));
+    renderState(pendingStatus);
+    closeDialog();
+    announce(pendingStatus === 'published' ? 'Published link saved.' : 'Topic chosen for this week.');
+  };
+
+  selectButton.addEventListener('click', () => openDialog('selected'));
+  publishButton.addEventListener('click', () => openDialog('published'));
+  dialog.querySelectorAll('[data-status-cancel]').forEach((button) => button.addEventListener('click', closeDialog));
+  dialog.addEventListener('click', (event) => { if (event.target === dialog) closeDialog(); });
+  submit.addEventListener('click', async () => {
+    submit.disabled = true;
+    error.hidden = true;
+    try { await saveStatus(); } catch (problem) { error.textContent = problem.message; error.hidden = false; }
+    finally { submit.disabled = false; }
+  });
+  tokenInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') submit.click(); });
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !dialog.hidden) closeDialog(); });
+  renderState(safeStorage(localStorage, (store) => store.getItem(stateKey), ''));
+})();
+"""
 
 
 def _safe_file(path: Path, root: Path, label: str) -> Path:
@@ -808,6 +948,9 @@ def validate_editorial_review_kit(manifest_path: Path, output_dir: Path) -> dict
                 page.select_one("[data-editorial-workspace]") is None
                 or page.select_one("#editorial-context") is None
                 or page.select_one('[data-editor-action="download-original"]') is None
+                or page.select_one('[data-editor-choice="select"]') is None
+                or page.select_one('[data-editor-choice="publish"]') is None
+                or page.select_one("[data-status-dialog]") is None
                 or page.select_one('[data-editor-action="download"]') is None
                 or page.select_one("[data-editor-voice-consent]") is None
             ):

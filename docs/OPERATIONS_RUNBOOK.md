@@ -92,6 +92,9 @@ Recommended pilot packaging:
 4. Verify every item in its factual-review checklist against primary sources before client review.
 5. Confirm tone, offer emphasis, and CTA with the client.
 6. Keep WordPress or other CMS publishing manual and separately approved.
+7. After the client publishes, record the live HTTPS link with **Mark as published** and sync publication history before the next Content Studio topic run.
+
+Direct WordPress publishing remains a future add-on. Use WordPress application-password or OAuth authorization when the client confirms the site and desired workflow; never collect the client's normal WordPress password in the review page.
 
 To expand approved briefs independently, use `content-studio-expand` with an existing `briefs.json`, explicit ranks, and a new output directory. Run one rank per invocation for clear status and inexpensive retries. The command does not rerun discovery or mutate app state.
 

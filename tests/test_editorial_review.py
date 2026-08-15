@@ -190,6 +190,7 @@ def test_editorial_review_kit_can_enable_private_revision_workspace(tmp_path):
             "edition_id": "edition-2026-08-14",
             "editorial_editing": True,
             "revision_api": "/api/editorial-revisions",
+            "status_api": "/api/editorial-status",
         }
     )
     data["articles"][0]["full_body"] = full_body.name
@@ -205,6 +206,12 @@ def test_editorial_review_kit_can_enable_private_revision_workspace(tmp_path):
     assert "Download Word (.doc)" in page
     assert 'data-editor-action="download"' in page
     assert 'data-editor-voice-consent' in page
+    assert 'data-editor-choice="select"' in page
+    assert 'data-editor-choice="publish" hidden' in page
+    assert "Choose this topic" in page
+    assert "Mark as published" in page
+    assert "Nothing will be published or emailed from this button." in script
+    assert '"status_api": "/api/editorial-status"' in page
     assert "Review access code" in page
     assert "It is a password, not a filename." in page
     assert '"client_id": "amy-huffman"' in page

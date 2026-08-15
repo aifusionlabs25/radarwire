@@ -261,6 +261,53 @@ def test_content_studio_passes_only_bounded_approved_voice_examples_to_hermes(tm
     assert "style references only" in runner.calls[0][0]
 
 
+def test_content_studio_passes_publication_history_and_reports_count(tmp_path):
+    runner = FakeRunner()
+    history = [
+        {
+            "article_title": "Avoiding Information Return Penalties",
+            "article_slug": "avoiding-information-return-penalties",
+            "published_url": "https://1099fire.com/blog/avoiding-penalties",
+            "published_at": "2026-08-01T12:00:00Z",
+        }
+    ]
+
+    result = generate_content_studio(
+        cfg(),
+        "run-1",
+        digest(),
+        tmp_path / "history-aware",
+        runner=runner,
+        publication_history=history,
+    )
+
+    assert result["publication_history_count"] == 1
+    assert runner.calls[0][1]["previously_published"][0]["title"] == history[0]["article_title"]
+    assert "exclusion list" in runner.calls[0][0]
+
+
+def test_content_studio_rejects_brief_that_repeats_published_topic(tmp_path):
+    runner = FakeRunner()
+    history = [
+        {
+            "article_title": "Original brief 2",
+            "article_slug": "original-brief-2",
+            "published_url": "https://1099fire.com/blog/original-brief-2",
+            "published_at": "2026-08-01T12:00:00Z",
+        }
+    ]
+
+    with pytest.raises(ContentStudioError, match="previously published"):
+        generate_content_studio(
+            cfg(),
+            "run-1",
+            digest(),
+            tmp_path / "repeated-topic",
+            runner=runner,
+            publication_history=history,
+        )
+
+
 def test_content_studio_expand_rejects_briefs_from_another_run(tmp_path):
     brief_set = BriefSet(client_name="1099FIRE", run_id="other-run", briefs=[brief(1), brief(2), brief(3)])
 

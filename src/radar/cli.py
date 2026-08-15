@@ -13,6 +13,11 @@ from rich import print
 
 from .config import AppConfig, load_config
 from .content_studio import BriefSet, ContentStudioError, generate_content_studio, generate_content_studio_drafts
+from .publication_history import (
+    PublicationHistoryError,
+    load_publication_history,
+    sync_publication_history,
+)
 from .voice_library import VoiceLibraryError, load_voice_examples, sync_voice_library
 from .editorial_review import EditorialReviewError, build_editorial_review_kit, validate_editorial_review_kit
 from .emailer import (
@@ -461,16 +466,24 @@ def content_studio(
     output_dir: str | None = typer.Option(None, "--output-dir", help="New review-artifact directory"),
     overwrite: bool = typer.Option(False, "--overwrite", help="Allow replacing existing Content Studio files"),
     voice_corpus: str | None = typer.Option(None, "--voice-corpus", help="Approved client voice-corpus JSONL"),
+    publication_history: str | None = typer.Option(None, "--publication-history", help="Published-content JSONL exclusion list"),
 ):
     c = cfg(config, ensure_dirs=False)
     report_dir, digest = load_existing_report(c, run_id)
     destination = Path(output_dir) if output_dir else report_dir / "content-studio"
     try:
         voice_examples = load_voice_examples(Path(voice_corpus)) if voice_corpus else []
+        published_items = load_publication_history(Path(publication_history)) if publication_history else []
         result = generate_content_studio(
-            c, run_id, digest, destination, overwrite=overwrite, voice_examples=voice_examples
+            c,
+            run_id,
+            digest,
+            destination,
+            overwrite=overwrite,
+            voice_examples=voice_examples,
+            publication_history=published_items,
         )
-    except (ContentStudioError, VoiceLibraryError, OSError, ValueError, json.JSONDecodeError) as exc:
+    except (ContentStudioError, PublicationHistoryError, VoiceLibraryError, OSError, ValueError, json.JSONDecodeError) as exc:
         typer.echo(json.dumps({"status": "refused", "error": str(exc)}, indent=2))
         raise typer.Exit(2) from exc
     typer.echo(json.dumps(result, indent=2))
@@ -518,6 +531,21 @@ def voice_library_sync(
     try:
         result = sync_voice_library(endpoint, client_id, Path(output_dir), token_env=token_env)
     except (VoiceLibraryError, OSError, ValueError, json.JSONDecodeError) as exc:
+        typer.echo(json.dumps({"status": "refused", "error": str(exc)}, indent=2))
+        raise typer.Exit(2) from exc
+    typer.echo(json.dumps(result, indent=2))
+
+
+@app.command("publication-history-sync")
+def publication_history_sync(
+    endpoint: str = typer.Option(..., "--endpoint", help="Hosted RadarWire editorial-status API URL"),
+    client_id: str = typer.Option(..., "--client-id", help="Client publication-history identifier"),
+    output_dir: str = typer.Option(..., "--output-dir", help="Ignored local publication-history directory"),
+    token_env: str = typer.Option("RADAR_EDITORIAL_SAVE_TOKEN", "--token-env", help="Environment variable containing the private review token"),
+):
+    try:
+        result = sync_publication_history(endpoint, client_id, Path(output_dir), token_env=token_env)
+    except (PublicationHistoryError, OSError, ValueError, json.JSONDecodeError) as exc:
         typer.echo(json.dumps({"status": "refused", "error": str(exc)}, indent=2))
         raise typer.Exit(2) from exc
     typer.echo(json.dumps(result, indent=2))

@@ -64,7 +64,9 @@ function Sync-DeploymentShell([string]$SourceRoot, [string]$DestinationRoot) {
     'package.json',
     'package-lock.json',
     'api\editorial-revisions.js',
-    'api\_editorial_revision_core.mjs'
+    'api\_editorial_revision_core.mjs',
+    'api\editorial-status.js',
+    'api\_editorial_status_core.mjs'
   )
   foreach ($RelativePath in $Files) {
     $SourcePath = Join-Path $SourceRoot $RelativePath
