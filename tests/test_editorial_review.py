@@ -212,8 +212,14 @@ def test_editorial_review_kit_can_enable_private_revision_workspace(tmp_path):
     assert "Mark as published" in page
     assert "Nothing will be published or emailed from this button." in script
     assert '"status_api": "/api/editorial-status"' in page
-    assert "Review access code" in page
-    assert "It is a password, not a filename." in page
+    assert "Review access code" not in page
+    assert "Private review code" not in page
+    assert "data-editor-token" not in page
+    assert "data-status-token" not in page
+    assert "This page needs the complete private review link" in script
+    assert "fragment.get('review')" in script
+    assert "sessionStorage.setItem(tokenKey, invitation)" in script
+    assert "localStorage.setItem(tokenKey" not in script
     assert '"client_id": "amy-huffman"' in page
     assert '"edition_id": "edition-2026-08-14"' in page
     assert "Save to RadarWire and downloaded" not in script
@@ -222,6 +228,9 @@ def test_editorial_review_kit_can_enable_private_revision_workspace(tmp_path):
     assert "voice_library_consent" in script
     assert "localStorage" in script
     assert "application/msword" in script
+    index = (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert 'id="review-access-context"' in index
+    assert '<script src="review.js"></script>' in index
     assert validate_editorial_review_kit(manifest, tmp_path)["status"] == "ok"
 
 

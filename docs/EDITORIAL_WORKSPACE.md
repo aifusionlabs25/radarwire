@@ -29,9 +29,11 @@ Ordinary submissions use `submitted`. A revision is eligible for Hermes voice ma
 The revision API is `api/editorial-revisions.js`; the topic/publication ledger is `api/editorial-status.js`. Both require:
 
 - `BLOB_READ_WRITE_TOKEN`, injected by a private Vercel Blob store
-- `RADAR_EDITORIAL_SAVE_TOKEN`, a long private review code shared with the client outside the report URL
+- `RADAR_EDITORIAL_SAVE_TOKEN`, a long private credential used to create the client's invitation link
 
-The token is sent in an authorization header and retained only in browser session storage. It is not embedded in generated HTML, query strings, Git, or report artifacts. Revision blobs use private access and unique immutable paths.
+The credential is placed in the invitation link fragment (`#review=...`) by the local helper. URL fragments are not sent in ordinary HTTP requests or referrer headers. On first load, RadarWire moves it into browser session storage and immediately removes the fragment from the address bar. Protected saves use an authorization header. The credential is not embedded in generated HTML, query strings, Git, or report artifacts. Revision and status blobs use private access and unique immutable paths.
+
+The client receives one private invitation link and sees no password field. Treat that complete invitation link like a password: send it directly to the intended reviewer and do not post it publicly.
 
 The unauthenticated health check reports configuration booleans only:
 
@@ -42,7 +44,15 @@ GET /api/editorial-status?health=1
 
 Do not share, email, or schedule an editing-enabled kit until both booleans are true and one operator-controlled save/download has been verified.
 
-After the Blob store is linked, `scripts/windows/configure-editorial-workspace.ps1` creates a random review code, stores a DPAPI-encrypted local recovery copy, and configures the Vercel variable for all three environments. Vercel stores it as sensitive in Production and Preview and encrypted in Development. The helper refuses replacement unless `-Force` is supplied. It does not print the token, deploy, send email, or register a task.
+After the Blob store is linked, `scripts/windows/configure-editorial-workspace.ps1` creates a random credential, stores a DPAPI-encrypted local recovery copy, and configures the Vercel variable for all three environments. Vercel stores it as sensitive in Production and Preview and encrypted in Development. The helper refuses replacement unless `-Force` is supplied. It does not print the token, deploy, send email, or register a task.
+
+Copy the complete private invitation link to the Windows clipboard without printing its credential:
+
+```powershell
+scripts\windows\copy-editorial-review-link.ps1
+```
+
+Paste that one link directly into the client email. Opening it establishes access for the current browser tab, after which the client can navigate among all three drafts normally.
 
 ## Review Manifest
 

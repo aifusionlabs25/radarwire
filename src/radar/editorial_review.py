@@ -130,6 +130,12 @@ def _editorial_context(package: dict[str, Any], article: dict[str, Any]) -> dict
     }
 
 
+def _review_access_context(package: dict[str, Any]) -> dict[str, str | int]:
+    client_name = str(package.get("client_name") or "client")
+    client_id = str(package.get("client_id") or re.sub(r"[^a-z0-9]+", "-", client_name.casefold())).strip("-")
+    return {"schema_version": 1, "client_id": client_id}
+
+
 def _editorial_workspace(package: dict[str, Any], article: dict[str, Any]) -> str:
     if not package.get("editorial_editing"):
         return ""
@@ -159,7 +165,6 @@ def _editorial_workspace(package: dict[str, Any], article: dict[str, Any]) -> st
         <div class="eyebrow">Private editorial workspace</div>
         <h2 id="editor-dialog-title">Save your changes</h2>
         <p>RadarWire saves a private copy of your edited draft before it is copied or downloaded.</p>
-        <label class="editor-field"><span>Review access code</span><input type="password" data-editor-token autocomplete="current-password" aria-describedby="editor-code-help" required><small id="editor-code-help">Use the private code provided with this review link. It is a password, not a filename.</small></label>
         <label class="editor-consent"><input type="checkbox" data-editor-voice-consent><span><strong>Help future drafts sound more like {html.escape(str(package.get('client_name') or 'the client'))}</strong>Use this finished version as a writing example. Leave this unchecked if you only want to save your changes.</span></label>
         <div class="editor-dialog-actions"><button type="button" class="editor-button" data-editor-cancel>Cancel</button><button type="button" class="editor-button editor-button-primary" data-editor-submit>Save revision</button></div>
         <div class="editor-error" data-editor-error role="alert" hidden></div>
@@ -172,7 +177,6 @@ def _editorial_workspace(package: dict[str, Any], article: dict[str, Any]) -> st
         <h2 id="status-dialog-title" data-status-title>Choose this topic?</h2>
         <p data-status-description>We will remember your choice so this topic is not repeated in a future weekly list.</p>
         <label class="editor-field" data-published-url-field hidden><span>Link to the published article</span><input type="url" data-published-url inputmode="url" placeholder="https://1099fire.com/..." autocomplete="url"><small>Paste the page address after the article is live.</small></label>
-        <label class="editor-field"><span>Private review code</span><input type="password" data-status-token autocomplete="current-password" required><small>Use the same private code provided with this review.</small></label>
         <div class="editor-dialog-actions"><button type="button" class="editor-button" data-status-cancel>Cancel</button><button type="button" class="editor-button editor-button-choice" data-status-submit>Choose this topic</button></div>
         <div class="editor-error" data-status-error role="alert" hidden></div>
       </section>
@@ -295,6 +299,7 @@ def _article_page(
 
 
 def _index_page(package: dict[str, Any]) -> str:
+    access_context = json.dumps(_review_access_context(package), ensure_ascii=True).replace("</", "<\\/")
     cards = "".join(
         f"<article class=\"concept-card accent-{article['rank']}\">"
         f"<a class=\"concept-image\" href=\"{html.escape(article['slug'], quote=True)}.html?view=quick\">"
@@ -336,6 +341,8 @@ def _index_page(package: dict[str, Any]) -> str:
     <section class="review-note"><strong>For review, not publication</strong><div><p>Each concept includes original copy, source-backed drafting, SEO framing, commissioned visual mockups, and primary-source review notes. Final factual, brand, and service-language approval remain publication gates.</p>{supporting_link}</div></section>
   </main>
   <footer><strong>1099FIRE editorial concept review</strong><span>Educational drafts. Confirm current requirements before publication.</span></footer>
+  <script type="application/json" id="review-access-context">{access_context}</script>
+  <script src="review.js"></script>
 </body>
 </html>"""
 
@@ -461,7 +468,20 @@ STYLES += """
 STYLES = STYLES.replace("letter-spacing:.08em", "letter-spacing:0")
 
 
-SCRIPT = """(() => { const bar = document.querySelector('.reading-progress span'); if (!bar) return; const update = () => { const max = document.documentElement.scrollHeight - innerHeight; bar.style.width = `${max > 0 ? (scrollY / max) * 100 : 0}%`; }; addEventListener('scroll', update, {passive:true}); addEventListener('resize', update); update(); })();\n"""
+SCRIPT = r"""(() => {
+  const contextNode = document.getElementById('editorial-context') || document.getElementById('review-access-context');
+  if (!contextNode) return;
+  const context = JSON.parse(contextNode.textContent);
+  const tokenKey = `radarwire:editor-token:${context.client_id}`;
+  const fragment = new URLSearchParams(location.hash.slice(1));
+  const invitation = fragment.get('review') || '';
+  if (/^[A-Za-z0-9_-]{32,128}$/.test(invitation)) {
+    try { sessionStorage.setItem(tokenKey, invitation); } catch (_) {}
+    history.replaceState({}, '', `${location.pathname}${location.search}`);
+  }
+})();
+"""
+SCRIPT += """(() => { const bar = document.querySelector('.reading-progress span'); if (!bar) return; const update = () => { const max = document.documentElement.scrollHeight - innerHeight; bar.style.width = `${max > 0 ? (scrollY / max) * 100 : 0}%`; }; addEventListener('scroll', update, {passive:true}); addEventListener('resize', update); update(); })();\n"""
 SCRIPT += """(() => { const buttons = [...document.querySelectorAll('[data-reading-target]')]; if (!buttons.length) return; const copies = [...document.querySelectorAll('[data-reading-copy]')]; const time = document.querySelector('[data-active-read-time]'); const activate = (mode) => { buttons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.readingTarget === mode))); copies.forEach((copy) => { copy.hidden = copy.dataset.readingCopy !== mode; }); const active = buttons.find((button) => button.dataset.readingTarget === mode); const activeTime = active?.querySelector('span')?.textContent; if (time && activeTime) time.textContent = activeTime; document.documentElement.dataset.readingMode = mode; dispatchEvent(new Event('resize')); }; buttons.forEach((button) => button.addEventListener('click', () => activate(button.dataset.readingTarget))); activate('short'); })();\n"""
 SCRIPT += """(() => { const buttons = [...document.querySelectorAll('[data-reading-target]')]; if (!buttons.length) return; const requested = new URLSearchParams(location.search).get('view'); const initialMode = requested === 'full' ? 'full' : 'short'; const initial = buttons.find((button) => button.dataset.readingTarget === initialMode); if (initialMode === 'full') initial?.click(); buttons.forEach((button) => button.addEventListener('click', () => { const url = new URL(location.href); url.searchParams.set('view', button.dataset.readingTarget === 'full' ? 'full' : 'quick'); history.replaceState({}, '', url); })); })();\n"""
 SCRIPT += r"""(() => {
@@ -478,7 +498,6 @@ SCRIPT += r"""(() => {
   const status = workspace.querySelector('[data-editor-status]');
   const actions = Object.fromEntries([...workspace.querySelectorAll('[data-editor-action]')].map((node) => [node.dataset.editorAction, node]));
   const dialog = document.querySelector('[data-editor-dialog]');
-  const tokenInput = dialog?.querySelector('[data-editor-token]');
   const voiceConsent = dialog?.querySelector('[data-editor-voice-consent]');
   const submit = dialog?.querySelector('[data-editor-submit]');
   const error = dialog?.querySelector('[data-editor-error]');
@@ -577,13 +596,17 @@ SCRIPT += r"""(() => {
     document.body.classList.add('editor-dialog-open');
     if (error) error.hidden = true;
     const existing = safeStorage(sessionStorage, (store) => store.getItem(tokenKey), '');
-    tokenInput.value = existing || '';
     voiceConsent.checked = false;
-    tokenInput.focus();
+    submit.disabled = !existing;
+    if (!existing && error) {
+      error.textContent = 'This page needs the complete private review link. Ask Rob to resend it.';
+      error.hidden = false;
+    }
+    submit.focus();
   };
   const saveRevision = async () => {
-    const token = tokenInput.value.trim();
-    if (!token) throw new Error('Enter the private review code.');
+    const token = safeStorage(sessionStorage, (store) => store.getItem(tokenKey), '') || '';
+    if (!token) throw new Error('This page needs the complete private review link. Ask Rob to resend it.');
     const mode = activeMode();
     const cleanCopy = sanitize(copies[mode]);
     const originalHolder = document.createElement('div');
@@ -613,10 +636,12 @@ SCRIPT += r"""(() => {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-      if (response.status === 401) safeStorage(sessionStorage, (store) => store.removeItem(tokenKey));
+      if (response.status === 401) {
+        safeStorage(sessionStorage, (store) => store.removeItem(tokenKey));
+        throw new Error('This private review link is no longer valid. Ask Rob for a fresh link.');
+      }
       throw new Error(result.error || `RadarWire could not save this revision (${response.status}).`);
     }
-    safeStorage(sessionStorage, (store) => store.setItem(tokenKey, token));
     closeDialog();
     updateStatus(`Saved to RadarWire at ${new Date(result.saved_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
     if (pendingAction === 'download') downloadCopy(cleanCopy);
@@ -650,7 +675,6 @@ SCRIPT += r"""(() => {
     catch (problem) { if (error) { error.textContent = problem.message; error.hidden = false; } }
     finally { submit.disabled = false; }
   });
-  tokenInput?.addEventListener('keydown', (event) => { if (event.key === 'Enter') submit?.click(); });
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && dialog && !dialog.hidden) closeDialog(); });
   updateStatus();
 })();
@@ -670,7 +694,6 @@ SCRIPT += r"""(() => {
   const description = dialog.querySelector('[data-status-description]');
   const urlField = dialog.querySelector('[data-published-url-field]');
   const urlInput = dialog.querySelector('[data-published-url]');
-  const tokenInput = dialog.querySelector('[data-status-token]');
   const submit = dialog.querySelector('[data-status-submit]');
   const error = dialog.querySelector('[data-status-error]');
   const toast = document.querySelector('[data-editor-toast]');
@@ -715,15 +738,17 @@ SCRIPT += r"""(() => {
     urlInput.required = publishing;
     urlInput.value = '';
     submit.textContent = publishing ? 'Save published link' : 'Choose this topic';
-    tokenInput.value = safeStorage(sessionStorage, (store) => store.getItem(tokenKey), '') || '';
+    const token = safeStorage(sessionStorage, (store) => store.getItem(tokenKey), '') || '';
+    submit.disabled = !token;
     dialog.hidden = false;
     document.body.classList.add('editor-dialog-open');
-    error.hidden = true;
-    (publishing ? urlInput : tokenInput).focus();
+    error.hidden = Boolean(token);
+    if (!token) error.textContent = 'This page needs the complete private review link. Ask Rob to resend it.';
+    (publishing ? urlInput : submit).focus();
   };
   const saveStatus = async () => {
-    const token = tokenInput.value.trim();
-    if (!token) throw new Error('Enter the private review code.');
+    const token = safeStorage(sessionStorage, (store) => store.getItem(tokenKey), '') || '';
+    if (!token) throw new Error('This page needs the complete private review link. Ask Rob to resend it.');
     const publishedUrl = urlInput.value.trim();
     if (pendingStatus === 'published') {
       let parsed;
@@ -747,10 +772,12 @@ SCRIPT += r"""(() => {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-      if (response.status === 401) safeStorage(sessionStorage, (store) => store.removeItem(tokenKey));
+      if (response.status === 401) {
+        safeStorage(sessionStorage, (store) => store.removeItem(tokenKey));
+        throw new Error('This private review link is no longer valid. Ask Rob for a fresh link.');
+      }
       throw new Error(result.error || `RadarWire could not save this choice (${response.status}).`);
     }
-    safeStorage(sessionStorage, (store) => store.setItem(tokenKey, token));
     safeStorage(localStorage, (store) => store.setItem(stateKey, pendingStatus));
     renderState(pendingStatus);
     closeDialog();
@@ -767,7 +794,6 @@ SCRIPT += r"""(() => {
     try { await saveStatus(); } catch (problem) { error.textContent = problem.message; error.hidden = false; }
     finally { submit.disabled = false; }
   });
-  tokenInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') submit.click(); });
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !dialog.hidden) closeDialog(); });
   renderState(safeStorage(localStorage, (store) => store.getItem(stateKey), ''));
 })();

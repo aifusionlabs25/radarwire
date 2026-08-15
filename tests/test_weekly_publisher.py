@@ -111,6 +111,21 @@ def test_editorial_workspace_configurator_uses_dpapi_and_never_prints_token():
     assert "Register-ScheduledTask" not in script
 
 
+def test_private_review_link_helper_uses_dpapi_clipboard_and_never_prints_token():
+    script = Path("scripts/windows/copy-editorial-review-link.ps1").read_text(encoding="utf-8")
+
+    assert "ConvertTo-SecureString $envelope.encrypted_value" in script
+    assert "SecureStringToBSTR" in script
+    assert "#review=" in script
+    assert "Set-Clipboard -Value $privateLink" in script
+    assert "ZeroFreeBSTR" in script
+    assert "token_printed = $false" in script
+    assert "Write-Host $token" not in script
+    assert "Write-Output $privateLink" not in script
+    assert "deliver-report" not in script
+    assert "Register-ScheduledTask" not in script
+
+
 def test_editorial_revision_smoke_uses_dpapi_and_cannot_seed_voice_library():
     root = Path(__file__).resolve().parents[1]
     script = (root / "scripts" / "windows" / "test-editorial-revision-api.ps1").read_text(encoding="utf-8")
