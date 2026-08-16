@@ -26,5 +26,7 @@ $action = New-ScheduledTaskAction -Execute 'PowerShell.exe' -Argument $argument
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 2) -ExecutionTimeLimit ([TimeSpan]::Zero)
 $task = New-ScheduledTask -Action $action -Trigger $trigger -Settings $settings -Description 'Outbound-only RadarWire editorial revision worker. Does not open Hermes Desktop.'
-Register-ScheduledTask -TaskName $TaskName -InputObject $task -Force | Out-Null
+Register-ScheduledTask -TaskName $TaskName -InputObject $task -Force -ErrorAction Stop | Out-Null
+$registeredTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+if (-not $registeredTask) { throw "Task registration could not be verified: $TaskName" }
 Write-Host "Registered $TaskName. It was not started."

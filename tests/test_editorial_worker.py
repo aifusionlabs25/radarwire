@@ -150,6 +150,7 @@ def test_windows_worker_scripts_are_outbound_only_and_prepare_without_registerin
     assert "AtLogOn" in installer
     assert "prepared_only" in installer
     assert "registered = $false" in installer
+    assert "Task registration could not be verified" in installer
 
 
 def test_normalizes_common_hermes_revision_list_variation():
