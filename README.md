@@ -54,6 +54,7 @@ radar install-hermes-profile
 - `radar state-audit` — read-only pilot state audit: counts, sent-email count, active locks, fixture-looking articles, latest run warnings/log path.
 - `radar content-studio --run-id <run_id>` — use an existing source-clean digest to generate three ranked blog briefs and one internal draft; no crawl, email, SQLite mutation, scheduler, deployment, or publishing.
 - `radar creative-shadow --enable-hermes-image-generation ...` — explicitly generate and jury three private artwork candidates for one reviewed article; never promotes artwork, emails, deploys, publishes, or schedules work.
+- `radar creative-shadow-v2 --enable-hermes-image-generation ...` — score a completed shadow round against the current control, refine one direction, and enforce a control-beating replacement gate.
 - `radar source-check` — app-state read-only live public-web discovery: shows discovered URLs per source, likely article vs non-article URL buckets, source quality notes, and skipped/warning reasons without writing articles, sending email, calling Hermes, or opening/creating SQLite state.
 - `radar status`, `health-json`, `backup`, `restore`, `report-list`.
 
@@ -145,6 +146,8 @@ Run `editorial-review-validate` with the same manifest and output directory befo
 The creative-director audition is isolated from the weekly pipeline and disabled unless the operator supplies `--enable-hermes-image-generation`. It requires the dedicated `radarwire-art-jury` profile and `radarwire-creative-director` skill. Results go to a new `.radar-data/creative-shadow/<run-id>/` directory and include three candidates, the unchanged control, Hermes scorecards, and a private `index.html` comparison.
 
 Hermes may recommend a candidate, but RadarWire never promotes it automatically. The current production artwork remains the fallback until a human separately approves a replacement. See `docs/CREATIVE_SHADOW.md` for setup, provider checks, resume behavior, and the exact safety boundary.
+
+Version 2 reuses a completed three-candidate shadow run. It scores the control with the same rubric, creates one refinement using the preferred candidate and control as image references, and compares the result directly with the control. RadarWire recommends the revision only when it has no rejection flags, reaches at least 8 for brand fit, editorial credibility, subject relevance, and composition, keeps artifact risk at 2 or lower, and beats the control quality score by at least 3 points.
 
 ## Interactive report page export
 

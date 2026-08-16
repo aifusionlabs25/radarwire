@@ -1,0 +1,36 @@
+{
+  "client_name": "1099FIRE",
+  "palette": {
+    "primary_green": "#078F24",
+    "dark_green": "#087B36",
+    "navy": "#10233E",
+    "white": "#FFFFFF",
+    "restrained_coral": "#F05A47"
+  },
+  "personality": [
+    "approachable",
+    "capable",
+    "energetic",
+    "credible",
+    "practical",
+    "small company confidence beside larger corporate brands"
+  ],
+  "must_show": [
+    "confident green as a visible brand signal",
+    "clear editorial hierarchy",
+    "a practical connection to information-return filing readiness",
+    "human or tactile authenticity",
+    "strong thumbnail readability"
+  ],
+  "avoid": [
+    "logo imitation",
+    "legible generated text",
+    "fake tax forms",
+    "fake software interfaces",
+    "distorted hands or anatomy",
+    "generic corporate stock photography",
+    "cold monochrome abstraction",
+    "decorative objects with no filing relevance",
+    "glossy generic AI styling"
+  ]
+}

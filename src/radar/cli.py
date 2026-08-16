@@ -13,7 +13,13 @@ from rich import print
 
 from .config import AppConfig, load_config
 from .content_studio import BriefSet, ContentStudioError, generate_content_studio, generate_content_studio_drafts
-from .creative_shadow import CreativePlan, CreativeShadowError, HermesCreativeRunner, run_creative_shadow
+from .creative_shadow import (
+    CreativePlan,
+    CreativeShadowError,
+    HermesCreativeRunner,
+    run_creative_shadow,
+    run_creative_shadow_v2,
+)
 from .publication_history import (
     PublicationHistoryError,
     load_publication_history,
@@ -616,6 +622,54 @@ def creative_shadow(
             runner=HermesCreativeRunner(profile=profile, skill=skill),
             approved_plan=CreativePlan.model_validate_json(Path(plan_path).read_text(encoding="utf-8")) if plan_path else None,
             existing_candidate_refs={"A": candidate_a_ref} if candidate_a_ref else None,
+        )
+    except (CreativeShadowError, OSError, ValueError, json.JSONDecodeError) as exc:
+        typer.echo(json.dumps({"status": "failed", "error": str(exc), "sends_email": False, "publishes": False}, indent=2))
+        raise typer.Exit(1) from exc
+    typer.echo(json.dumps(result, indent=2))
+
+
+@app.command("creative-shadow-v2")
+def creative_shadow_v2(
+    manifest: str = typer.Option(..., "--manifest", help="Existing editorial article manifest JSON"),
+    article_slug: str = typer.Option(..., "--article-slug", help="One article slug to refine"),
+    source_shadow_dir: str = typer.Option(..., "--source-shadow-dir", help="Completed three-candidate v1 shadow directory"),
+    brand_board: str = typer.Option(
+        "hermes/radarwire-creative-director/references/1099fire-brand-board.json",
+        "--brand-board",
+        help="Reviewed client creative brand board JSON",
+    ),
+    output_dir: str = typer.Option(..., "--output-dir", help="New isolated v2 shadow-output directory"),
+    enable_hermes_image_generation: bool = typer.Option(
+        False,
+        "--enable-hermes-image-generation",
+        help="Explicitly authorize one private shadow refinement image",
+    ),
+    profile: str = typer.Option("radarwire-art-jury", "--profile"),
+    skill: str = typer.Option("radarwire-creative-director", "--skill"),
+):
+    if not enable_hermes_image_generation:
+        typer.echo(
+            json.dumps(
+                {
+                    "status": "refused",
+                    "error": "Shadow v2 refinement requires --enable-hermes-image-generation",
+                    "sends_email": False,
+                    "publishes": False,
+                    "deploys": False,
+                },
+                indent=2,
+            )
+        )
+        raise typer.Exit(2)
+    try:
+        result = run_creative_shadow_v2(
+            Path(manifest),
+            article_slug,
+            Path(source_shadow_dir),
+            Path(brand_board),
+            Path(output_dir),
+            runner=HermesCreativeRunner(profile=profile, skill=skill),
         )
     except (CreativeShadowError, OSError, ValueError, json.JSONDecodeError) as exc:
         typer.echo(json.dumps({"status": "failed", "error": str(exc), "sends_email": False, "publishes": False}, indent=2))

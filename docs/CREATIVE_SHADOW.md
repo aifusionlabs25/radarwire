@@ -55,3 +55,41 @@ If a reviewed Hermes plan or successful private candidate already exists, use `-
 The jury scores brand fit, editorial credibility, human authenticity, subject relevance, composition, and artifact risk. Visible garbled text, logo imitation, distorted anatomy, fake tax forms, irrelevant imagery, or a cheap stock or AI appearance creates a rejection flag.
 
 A recommendation still requires human review. Promotion into the client package is intentionally a separate future operation.
+
+## Version 2
+
+Version 2 consumes an existing three-candidate shadow directory. It does not generate another first round.
+
+The workflow is bounded to four Hermes calls:
+
+1. Score CONTROL, A, B, and C with one jury pass.
+2. Convert the jury feedback into one refinement brief.
+3. Edit one preferred candidate using the control as a single brand reference.
+4. Compare CONTROL and refined candidate R in one final jury pass.
+
+Run it with a new output directory:
+
+```powershell
+$env:PYTHONPATH = 'src'
+python -m radar.cli creative-shadow-v2 `
+  --manifest <review-kit>/content/articles.json `
+  --article-slug pre-filing-readiness `
+  --source-shadow-dir .radar-data/creative-shadow/<completed-v1-run> `
+  --brand-board hermes/radarwire-creative-director/references/1099fire-brand-board.json `
+  --output-dir .radar-data/creative-shadow/<new-v2-run> `
+  --enable-hermes-image-generation `
+  --profile radarwire-art-jury `
+  --skill radarwire-creative-director
+```
+
+Candidate R can clear the machine replacement gate only when all of the following are true:
+
+- No rejection flags.
+- Brand fit is at least 8.
+- Editorial credibility is at least 8.
+- Subject relevance is at least 8.
+- Composition is at least 8.
+- Artifact risk is at most 2.
+- Quality beats the control by at least 3 points.
+
+The gate still does not alter production. Human approval remains separate.
