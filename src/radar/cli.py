@@ -13,6 +13,7 @@ from rich import print
 
 from .config import AppConfig, load_config
 from .content_studio import BriefSet, ContentStudioError, generate_content_studio, generate_content_studio_drafts
+from .creative_shadow import CreativePlan, CreativeShadowError, HermesCreativeRunner, run_creative_shadow
 from .publication_history import (
     PublicationHistoryError,
     load_publication_history,
@@ -575,6 +576,50 @@ def editorial_review_validate(
     except (EditorialReviewError, OSError, ValueError, json.JSONDecodeError) as exc:
         typer.echo(json.dumps({"status": "refused", "error": str(exc)}, indent=2))
         raise typer.Exit(2) from exc
+    typer.echo(json.dumps(result, indent=2))
+
+
+@app.command("creative-shadow")
+def creative_shadow(
+    manifest: str = typer.Option(..., "--manifest", help="Existing editorial article manifest JSON"),
+    article_slug: str = typer.Option(..., "--article-slug", help="One article slug to audition"),
+    output_dir: str = typer.Option(..., "--output-dir", help="New isolated shadow-output directory"),
+    enable_hermes_image_generation: bool = typer.Option(
+        False,
+        "--enable-hermes-image-generation",
+        help="Explicitly authorize exactly three shadow image generations",
+    ),
+    profile: str = typer.Option("radarwire-art-jury", "--profile"),
+    skill: str = typer.Option("radarwire-creative-director", "--skill"),
+    plan_path: str | None = typer.Option(None, "--plan-path", help="Previously reviewed Hermes CreativePlan JSON"),
+    candidate_a_ref: str | None = typer.Option(None, "--candidate-a-ref", help="Existing private shadow candidate A to reuse"),
+):
+    if not enable_hermes_image_generation:
+        typer.echo(
+            json.dumps(
+                {
+                    "status": "refused",
+                    "error": "Shadow generation requires --enable-hermes-image-generation",
+                    "sends_email": False,
+                    "publishes": False,
+                    "deploys": False,
+                },
+                indent=2,
+            )
+        )
+        raise typer.Exit(2)
+    try:
+        result = run_creative_shadow(
+            Path(manifest),
+            article_slug,
+            Path(output_dir),
+            runner=HermesCreativeRunner(profile=profile, skill=skill),
+            approved_plan=CreativePlan.model_validate_json(Path(plan_path).read_text(encoding="utf-8")) if plan_path else None,
+            existing_candidate_refs={"A": candidate_a_ref} if candidate_a_ref else None,
+        )
+    except (CreativeShadowError, OSError, ValueError, json.JSONDecodeError) as exc:
+        typer.echo(json.dumps({"status": "failed", "error": str(exc), "sends_email": False, "publishes": False}, indent=2))
+        raise typer.Exit(1) from exc
     typer.echo(json.dumps(result, indent=2))
 
 

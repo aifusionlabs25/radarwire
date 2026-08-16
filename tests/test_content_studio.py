@@ -183,6 +183,8 @@ def test_generate_content_studio_writes_review_artifacts_without_side_effects(tm
     assert "1099FIRE Content Studio" in (output / "review.html").read_text(encoding="utf-8")
     assert "Do not browse" in runner.calls[0][0]
     assert "Do not browse" in runner.calls[1][0]
+    assert "Never use an em dash" in runner.calls[0][0]
+    assert "Never use an em dash" in runner.calls[1][0]
 
 
 def test_content_studio_refuses_existing_output_without_overwrite(tmp_path):
@@ -393,6 +395,7 @@ def test_content_studio_normalizes_bounded_model_lists():
     raw["briefs"][0]["outline"] = [str(index) for index in range(10)]
 
     normalized, notes = normalize_content_studio_data(raw, BriefSet)
+    assert "\u2014" not in json.dumps(normalized)
     result = BriefSet.model_validate(normalized)
 
     assert len(result.briefs[0].secondary_keywords) == 6

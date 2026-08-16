@@ -53,6 +53,7 @@ radar install-hermes-profile
 - `radar scan --fail-on-source-errors` — optional strict mode: print report summary but exit nonzero if source warnings/errors were recorded.
 - `radar state-audit` — read-only pilot state audit: counts, sent-email count, active locks, fixture-looking articles, latest run warnings/log path.
 - `radar content-studio --run-id <run_id>` — use an existing source-clean digest to generate three ranked blog briefs and one internal draft; no crawl, email, SQLite mutation, scheduler, deployment, or publishing.
+- `radar creative-shadow --enable-hermes-image-generation ...` — explicitly generate and jury three private artwork candidates for one reviewed article; never promotes artwork, emails, deploys, publishes, or schedules work.
 - `radar source-check` — app-state read-only live public-web discovery: shows discovered URLs per source, likely article vs non-article URL buckets, source quality notes, and skipped/warning reasons without writing articles, sending email, calling Hermes, or opening/creating SQLite state.
 - `radar status`, `health-json`, `backup`, `restore`, `report-list`.
 
@@ -138,6 +139,12 @@ Dual-length pages also accept `?view=quick` and `?view=full` so an email can ope
 For client delivery, the editorial shortlist is the primary message and the competitor radar is optional supporting research. Set a stable `delivery_id`, absolute `review_base_url`, optional `supporting_report_url`, and reviewed `email_subject` in the editorial manifest. The builder then writes `email-preview.html`, `email-preview.txt`, and `email-preview.json`. Run `editorial-email-preflight` before the separately approved `deliver-editorial-review --send`; the dedicated outbox key prevents a second send for the same delivery ID and recipient. Do not substitute the dense radar digest for this client-facing shortlist.
 
 Run `editorial-review-validate` with the same manifest and output directory before client review. It checks page structure, approved image references, internal and external links, responsive breakpoints, competitor-brand leakage, encoding damage, unresolved verification markers, and the build's side-effect declarations.
+
+## Hermes creative shadow
+
+The creative-director audition is isolated from the weekly pipeline and disabled unless the operator supplies `--enable-hermes-image-generation`. It requires the dedicated `radarwire-art-jury` profile and `radarwire-creative-director` skill. Results go to a new `.radar-data/creative-shadow/<run-id>/` directory and include three candidates, the unchanged control, Hermes scorecards, and a private `index.html` comparison.
+
+Hermes may recommend a candidate, but RadarWire never promotes it automatically. The current production artwork remains the fallback until a human separately approves a replacement. See `docs/CREATIVE_SHADOW.md` for setup, provider checks, resume behavior, and the exact safety boundary.
 
 ## Interactive report page export
 
