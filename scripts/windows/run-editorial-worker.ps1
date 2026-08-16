@@ -30,6 +30,7 @@ $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
 $logDir = Join-Path $ProjectRoot '.radar-data\editorial-worker\logs'
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 $logPath = Join-Path $logDir ('worker-' + (Get-Date -Format 'yyyyMMdd') + '.log')
+$workerExitCode = 1
 
 try {
   $env:RADAR_EDITORIAL_SAVE_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
@@ -43,8 +44,15 @@ try {
   Push-Location $ProjectRoot
   try {
     $env:PYTHONPATH = 'src'
-    & $PythonExe @arguments *>> $logPath
-    exit $LASTEXITCODE
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      & $PythonExe @arguments *>> $logPath
+      $workerExitCode = $LASTEXITCODE
+    }
+    finally {
+      $ErrorActionPreference = $previousErrorAction
+    }
   }
   finally { Pop-Location }
 }
@@ -53,3 +61,4 @@ finally {
   if ($ptr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
   Remove-Variable secure -ErrorAction SilentlyContinue
 }
+exit $workerExitCode

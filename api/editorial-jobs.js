@@ -22,7 +22,8 @@ function sameOrigin(request) {
 }
 
 async function readPrivateJson(blob) {
-  const result = await get(typeof blob === 'string' ? blob : blob.url, { access: 'private' });
+  const reference = typeof blob === 'string' ? blob : (blob.pathname || blob.url);
+  const result = await get(reference, { access: 'private' });
   if (!result || result.statusCode !== 200 || !result.stream) return null;
   return JSON.parse(await new Response(result.stream).text());
 }

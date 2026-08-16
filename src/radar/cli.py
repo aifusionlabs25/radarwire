@@ -43,7 +43,7 @@ from .pipeline import run_pipeline, state_audit as do_state_audit, status as do_
 from .repository import RadarRepository
 from .source_check import check_sources
 
-app = typer.Typer()
+app = typer.Typer(pretty_exceptions_show_locals=False)
 
 
 def cfg(path: str | None, *, ensure_dirs: bool = True):

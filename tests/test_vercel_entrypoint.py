@@ -55,7 +55,9 @@ def test_attachment_endpoint_reports_storage_health_without_leaking_provider_err
     assert "editorial-health/provider-probe.json" in jobs_source
     assert "jobLatestPath" in jobs_source
     assert "readPrivateJson(jobLatestPath(reference))" in jobs_source
+    assert "blob.pathname || blob.url" in jobs_source
     assert "list({ prefix: 'editorial-jobs/', limit: 1 })" not in jobs_source
 
     assert "editorial-health/provider-probe.json" in source
+    assert "blob.pathname || blob.url" in source
     assert "list({ prefix: 'editorial-jobs/', limit: 1 })" not in source

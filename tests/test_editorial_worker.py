@@ -6,6 +6,8 @@ import httpx
 import pytest
 from bs4 import BeautifulSoup
 
+from radar.cli import app
+from radar.content_studio import normalize_content_studio_data
 from radar.editorial_worker import (
     EditorialRevisionOutput,
     _extract_attachment_text,
@@ -13,7 +15,10 @@ from radar.editorial_worker import (
     run_editorial_worker,
     validate_revision_result,
 )
-from radar.content_studio import normalize_content_studio_data
+
+
+def test_cli_tracebacks_do_not_render_sensitive_locals():
+    assert app.pretty_exceptions_show_locals is False
 
 
 def job():

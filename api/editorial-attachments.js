@@ -31,7 +31,7 @@ async function readBody(request) {
 }
 
 async function readPrivateJson(blob) {
-  const result = await get(blob.url, { access: 'private' });
+  const result = await get(blob.pathname || blob.url, { access: 'private' });
   if (!result || result.statusCode !== 200 || !result.stream) return null;
   return JSON.parse(await new Response(result.stream).text());
 }
@@ -117,7 +117,7 @@ export default async function handler(request, response) {
       return json(response, 200, { ok: true, deleted: true });
     }
     if (!admin) return json(response, 401, { ok: false, error: 'Worker authorization required' });
-    const result = await get(attachment.contentBlob.url, { access: 'private' });
+    const result = await get(attachment.contentBlob.pathname || attachment.contentBlob.url, { access: 'private' });
     if (!result || result.statusCode !== 200 || !result.stream) return json(response, 404, { ok: false, error: 'Attachment content not found' });
     response.status(200);
     response.setHeader('Cache-Control', 'no-store');
