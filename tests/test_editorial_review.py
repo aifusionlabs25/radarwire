@@ -299,6 +299,9 @@ def test_editorial_review_kit_can_enable_coordinated_ai_revision_panel(tmp_path)
     assert "Quick Read and Full Guide" in page
     assert "Nothing is published or emailed from this panel." in page
     assert "radar:revision-applied" in script
+    assert "completedResult = null" in script
+    assert "submit.hidden = false" in script
+    assert "instruction.value = ''" in script
     assert "SpeechRecognition" in script
     assert "navigator.mediaDevices?.getUserMedia" in script
     assert "recognition.interimResults = true" in script
