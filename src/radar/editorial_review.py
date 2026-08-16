@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -126,6 +127,11 @@ def _editorial_context(package: dict[str, Any], article: dict[str, Any]) -> dict
         "revision_api": str(package.get("revision_api") or "/api/editorial-revisions"),
         "status_api": str(package.get("status_api") or "/api/editorial-status"),
         "session_api": str(package.get("session_api") or "/api/editorial-session"),
+        "job_api": str(package.get("job_api") or "/api/editorial-jobs"),
+        "attachment_api": str(package.get("attachment_api") or "/api/editorial-attachments"),
+        "ai_revision_enabled": bool(package.get("ai_revision_enabled")),
+        "ai_attachments_enabled": bool(package.get("ai_attachments_enabled")),
+        "truth_profile": str(package.get("truth_profile") or "1099fire-v1"),
         "download_basename": str(article["slug"]),
         "voice_library_name": str(package.get("voice_library_name") or f"{client_name} voice library"),
     }
@@ -143,10 +149,84 @@ def _review_access_context(package: dict[str, Any]) -> dict[str, str | int]:
     }
 
 
+def _revision_suggestions(article: dict[str, Any]) -> list[tuple[str, str]]:
+    configured = article.get("revision_suggestions") or [
+        {
+            "label": "Remove an unsupported service",
+            "instruction": "Remove any service claims that 1099FIRE does not currently support without changing the article's core topic.",
+        },
+        {
+            "label": "Make the opening warmer",
+            "instruction": "Make the opening warmer and more conversational without changing any factual claims.",
+        },
+        {
+            "label": "Add an analogy and CTA",
+            "instruction": "Add one practical analogy and strengthen the 1099FIRE call to action.",
+        },
+    ]
+    suggestions: list[tuple[str, str]] = []
+    for item in configured[:3]:
+        if isinstance(item, dict):
+            label = str(item.get("label") or "").strip()
+            instruction = str(item.get("instruction") or item.get("prompt") or "").strip()
+        else:
+            label = instruction = str(item).strip()
+        if label and instruction:
+            suggestions.append((label, instruction))
+    return suggestions
+
+
 def _editorial_workspace(package: dict[str, Any], article: dict[str, Any]) -> str:
     if not package.get("editorial_editing"):
         return ""
     context_json = json.dumps(_editorial_context(package, article), ensure_ascii=True).replace("</", "<\\/")
+    ai_button = ""
+    ai_panel = ""
+    if package.get("ai_revision_enabled"):
+        suggestion_buttons = "".join(
+            f'<button type="button" data-ai-example="{html.escape(instruction, quote=True)}">'
+            f"{html.escape(label)}</button>"
+            for label, instruction in _revision_suggestions(article)
+        )
+        ai_button = (
+            '<button type="button" class="editor-button editor-button-revise" '
+            'data-ai-revision-open>Ask RadarWire to revise</button>'
+        )
+        ai_panel = f"""
+    <div class="ai-revision-backdrop" data-ai-revision-backdrop hidden></div>
+    <aside class="ai-revision-panel" data-ai-revision-panel aria-labelledby="ai-revision-title" aria-hidden="true">
+      <div class="ai-revision-header">
+        <div><span class="eyebrow">RadarWire revision assistant</span><h2 id="ai-revision-title">What should change?</h2></div>
+        <button type="button" class="ai-revision-close" data-ai-revision-close aria-label="Close revision panel">&times;</button>
+      </div>
+      <p class="ai-revision-intro">Tell us what to change. RadarWire will update the Quick Read and Full Guide together.</p>
+      <label class="editor-field ai-instruction-field"><span>Your instruction</span><span class="ai-instruction-box"><textarea data-ai-revision-instruction rows="6" maxlength="2000" placeholder="Tell RadarWire what you want changed."></textarea><span class="ai-input-tools"><button type="button" class="ai-tool-button" data-ai-voice aria-label="Dictate your instruction" title="Use microphone" hidden><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><path d="M12 19v3"></path></svg></button><button type="button" class="ai-tool-button ai-send-button" data-ai-revision-submit aria-label="Send revision request" title="Send request (Enter)" disabled><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"></path></svg></button></span></span><small data-ai-voice-status>Checking RadarWire availability. Nothing is published or emailed from this panel.</small></label>
+      <div class="ai-revision-examples" aria-label="Example instructions">
+        {suggestion_buttons}
+      </div>
+      <section class="ai-attachments" data-ai-attachments hidden>
+        <div class="ai-attachment-heading"><div><strong>Add helpful context</strong><span>Paste a screenshot or attach a small document.</span></div><label class="ai-attach-button" data-ai-attach-button><input type="file" data-ai-attachment-input accept="image/png,image/jpeg,image/webp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" multiple><span aria-hidden="true">&#128206;</span> Attach</label></div>
+        <p class="ai-attachment-status" data-ai-attachment-status hidden></p>
+        <div class="ai-attachment-list" data-ai-attachment-list></div>
+        <small>Do not attach taxpayer records, TINs, Social Security numbers, recipient files, or client data.</small>
+      </section>
+      <div class="ai-revision-progress" data-ai-revision-progress hidden>
+        <span class="ai-revision-spinner" aria-hidden="true"></span><div><strong data-ai-revision-state>Request saved</strong><span data-ai-revision-detail>You can safely close this page while RadarWire prepares it.</span></div>
+      </div>
+      <div class="ai-revision-result" data-ai-revision-result hidden>
+        <div class="ai-revision-check"><strong>Both versions checked</strong><span>No prohibited service references remain.</span></div>
+        <div class="ai-change-navigation" data-ai-change-navigation hidden><div><strong data-ai-change-count>Changes highlighted</strong><span>Review the highlighted updates in the article.</span></div><div class="ai-change-buttons"><button type="button" data-ai-change-previous aria-label="Previous highlighted change" title="Previous change"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"></path></svg></button><button type="button" data-ai-change-next aria-label="Next highlighted change" title="Next change"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg></button></div></div>
+        <h3>What changed</h3><ul data-ai-revision-summary></ul>
+        <div data-ai-revision-review hidden><h3>Check before using</h3><ul data-ai-revision-review-items></ul></div>
+      </div>
+      <div class="editor-error" data-ai-revision-error role="alert" hidden></div>
+      <div class="ai-revision-actions">
+        <button type="button" class="editor-button" data-ai-revision-discard>Cancel</button>
+        <button type="button" class="editor-button" data-ai-revision-retry hidden>Try another change</button>
+        <button type="button" class="editor-button editor-button-primary" data-ai-revision-apply hidden>Use this version</button>
+      </div>
+    </aside>
+        """
     return f"""
     <section class="editor-workspace" data-editorial-workspace aria-label="Draft editor">
       <div class="editor-choice" data-editor-choice-panel>
@@ -159,6 +239,7 @@ def _editorial_workspace(package: dict[str, Any], article: dict[str, Any]) -> st
       <div class="editor-actions">
         <button type="button" class="editor-button" data-editor-action="download-original">Download Word (.doc)</button>
         <button type="button" class="editor-button" data-editor-action="edit">Edit draft</button>
+        {ai_button}
         <button type="button" class="editor-button" data-editor-action="undo" hidden>Undo</button>
         <button type="button" class="editor-button" data-editor-action="reset" hidden>Restore original</button>
         <button type="button" class="editor-button" data-editor-action="copy" hidden>Save &amp; copy</button>
@@ -188,6 +269,7 @@ def _editorial_workspace(package: dict[str, Any], article: dict[str, Any]) -> st
         <div class="editor-error" data-status-error role="alert" hidden></div>
       </section>
     </div>
+    {ai_panel}
     <div class="editor-toast" data-editor-toast role="status" aria-live="polite" hidden></div>
     <script type="application/json" id="editorial-context">{context_json}</script>
     """
@@ -268,13 +350,13 @@ def _article_page(
   <meta name="robots" content="noindex,nofollow,noarchive">
   <meta name="description" content="{html.escape(article['meta_description'], quote=True)}">
   <title>{html.escape(article['meta_title'])}</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v={ASSET_VERSION}">
 </head>
 <body>
   <div class="reading-progress" aria-hidden="true"><span></span></div>
   <header class="site-header">
     <a class="brand" href="index.html" aria-label="1099FIRE editorial concepts home">{_brand_wordmark()}</a>
-    <nav><a href="index.html">All concepts</a><a href="https://www.1099fire.com/" target="_blank" rel="noreferrer">1099FIRE.com</a></nav>
+    <nav><a href="index.html">All ideas</a><a href="https://www.1099fire.com/" target="_blank" rel="noreferrer">1099FIRE.com</a><button type="button" class="theme-toggle" data-theme-toggle aria-label="Switch color theme" title="Switch color theme"><span data-theme-icon aria-hidden="true">&#9790;</span></button></nav>
   </header>
   <main>
     <section class="article-heading">
@@ -300,7 +382,7 @@ def _article_page(
     <nav class="article-footer-nav">{prev_link}{next_link}</nav>
   </main>
   <footer><strong>1099FIRE editorial concept review</strong><span>Educational draft. Confirm current requirements before publication.</span></footer>
-  <script src="review.js"></script>
+  <script src="review.js?v={ASSET_VERSION}"></script>
 </body>
 </html>"""
 
@@ -334,22 +416,22 @@ def _index_page(package: dict[str, Any]) -> str:
   <meta name="robots" content="noindex,nofollow,noarchive">
   <meta name="description" content="{html.escape(package['package_dek'], quote=True)}">
   <title>{html.escape(package['client_name'])} {html.escape(package['package_title'])}</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v={ASSET_VERSION}">
 </head>
 <body>
   <header class="site-header">
     <a class="brand" href="index.html" aria-label="1099FIRE editorial concepts home">{_brand_wordmark()}</a>
-    <nav><a href="https://www.1099fire.com/" target="_blank" rel="noreferrer">1099FIRE.com</a></nav>
+    <nav><a href="https://www.1099fire.com/" target="_blank" rel="noreferrer">1099FIRE.com</a><button type="button" class="theme-toggle" data-theme-toggle aria-label="Switch color theme" title="Switch color theme"><span data-theme-icon aria-hidden="true">&#9790;</span></button></nav>
   </header>
   <main>
-    <section class="review-intro"><div><div class="eyebrow">Weekly content shortlist / {html.escape(package['current_as_of'])}</div><h1>{html.escape(package['package_title'])}</h1><p>{html.escape(package['package_dek'])}</p></div><div class="review-count"><strong>{len(package['articles'])}</strong><span>drafts ready to review</span></div></section>
-    <section class="start-here"><div><span>Start here</span><strong>Choose one direction that feels most useful to your customers.</strong></div><ol><li><b>1</b> Skim the three ideas</li><li><b>2</b> Open a Quick Read</li><li><b>3</b> Choose your topic</li></ol></section>
+    <section class="review-intro"><div><div class="eyebrow">Your weekly blog ideas / {html.escape(package['current_as_of'])}</div><h1>Choose one idea to explore</h1><p>Start with a Quick Read. You can revise, download, or choose it from the next page.</p></div><div class="review-count"><strong>{len(package['articles'])}</strong><span>ideas ready</span></div></section>
+    <section class="start-here"><div><span>Simple first step</span><strong>Open the idea that sounds most useful.</strong></div><p>Nothing is published automatically.</p></section>
     <section class="concept-grid" aria-label="Editorial concepts">{cards}</section>
     <section class="review-note"><strong>For review, not publication</strong><div><p>Each concept includes original copy, source-backed drafting, SEO framing, commissioned visual mockups, and primary-source review notes. Final factual, brand, and service-language approval remain publication gates.</p>{supporting_link}</div></section>
   </main>
   <footer><strong>1099FIRE editorial concept review</strong><span>Educational drafts. Confirm current requirements before publication.</span></footer>
   <script type="application/json" id="review-access-context">{access_context}</script>
-  <script src="review.js"></script>
+  <script src="review.js?v={ASSET_VERSION}"></script>
 </body>
 </html>"""
 
@@ -475,10 +557,48 @@ STYLES += """
 STYLES += """
 .editor-disclosure{display:flex;flex-direction:column;gap:4px;margin:20px 0;padding:16px;border-left:4px solid var(--brand-green);background:#eef8f0}.editor-disclosure strong{font-size:14px}.editor-disclosure span{color:var(--muted);font-size:13px;line-height:1.55}
 """
+STYLES += """
+.editor-button-revise{border-color:var(--navy);background:var(--navy);color:#fff}.editor-button-revise:hover{background:#0f2d48;color:#fff}.ai-revision-backdrop{position:fixed;inset:0;z-index:30;background:rgba(10,22,35,.48)}.ai-revision-panel{position:fixed;top:0;right:0;z-index:31;width:min(500px,100%);height:100vh;padding:28px;overflow:auto;background:#fff;box-shadow:-18px 0 44px rgba(21,36,58,.2);transform:translateX(0)}.ai-revision-panel[aria-hidden="true"]{transform:translateX(102%);pointer-events:none}.ai-revision-header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding-bottom:20px;border-bottom:1px solid var(--line)}.ai-revision-header h2{margin:5px 0 0;font:700 34px/1.1 Georgia,serif}.ai-revision-close{width:42px;height:42px;border:0;background:transparent;color:var(--muted);font-size:30px;line-height:1;cursor:pointer}.ai-revision-intro{margin:22px 0;color:var(--muted)}.ai-revision-panel textarea{width:100%;resize:vertical;min-height:130px;padding:14px;border:1px solid #aebdc7;border-radius:6px;color:var(--ink);font:16px/1.5 Aptos,"Segoe UI",Arial,sans-serif}.ai-revision-panel textarea:focus{outline:3px solid rgba(7,143,36,.2);border-color:var(--brand-green)}.ai-revision-examples{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.ai-revision-examples button{padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--wash);color:var(--navy);font:700 12px/1.25 Aptos,"Segoe UI",Arial,sans-serif;cursor:pointer}.ai-revision-progress{display:flex;align-items:center;gap:14px;margin-top:24px;padding:16px;border-left:4px solid var(--gold);background:#fff8e4}.ai-revision-progress div{display:flex;flex-direction:column}.ai-revision-progress span{color:var(--muted);font-size:13px}.ai-revision-spinner{width:22px;height:22px;border:3px solid #e6d69d;border-top-color:#9a6900;border-radius:50%;animation:ai-spin .8s linear infinite}@keyframes ai-spin{to{transform:rotate(360deg)}}.ai-revision-result{margin-top:24px}.ai-revision-result h3{margin:20px 0 8px;font:700 18px/1.25 Georgia,serif}.ai-revision-result ul{padding-left:20px}.ai-revision-check{display:flex;flex-direction:column;padding:16px;border-left:4px solid var(--brand-green);background:#eef8f0}.ai-revision-check span{color:var(--muted);font-size:13px}.ai-revision-actions{position:sticky;bottom:-28px;display:flex;justify-content:flex-end;gap:8px;margin:28px -28px -28px;padding:18px 28px;background:#fff;border-top:1px solid var(--line)}body.ai-revision-open{overflow:hidden}@media(max-width:620px){.ai-revision-panel{padding:22px}.ai-revision-actions{bottom:-22px;margin:24px -22px -22px;padding:16px 22px;flex-wrap:wrap}.ai-revision-actions .editor-button{flex:1 1 auto}.editor-button-revise{order:-1;width:100%}}
+"""
+STYLES += ".ai-revision-backdrop[hidden],.ai-revision-progress[hidden],.ai-revision-result[hidden],.ai-revision-actions [hidden]{display:none!important}\n"
+STYLES += r"""
+.theme-toggle{display:inline-grid;place-items:center;width:38px;height:38px;padding:0;border:1px solid var(--line);border-radius:50%;background:var(--paper);color:var(--ink);font-size:18px;cursor:pointer}.theme-toggle:hover{border-color:var(--brand-green);color:var(--brand-green)}.theme-toggle:focus-visible{outline:3px solid var(--gold);outline-offset:2px}.site-header nav{align-items:center}.start-here>p{margin:0;color:#765000;font-size:13px;font-weight:700}
+.ai-instruction-box{position:relative;display:block}.ai-instruction-box textarea{padding-right:102px;padding-bottom:56px}.ai-input-tools{position:absolute;right:10px;bottom:10px;display:flex;gap:7px}.ai-tool-button{display:grid;place-items:center;width:38px;height:38px;padding:0;border:1px solid var(--line);border-radius:50%;background:var(--wash);color:var(--ink);cursor:pointer}.ai-tool-button svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.ai-tool-button:hover{border-color:var(--brand-green);color:var(--brand-green)}.ai-tool-button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}.ai-tool-button:disabled{cursor:wait;opacity:.48}.ai-send-button{border-color:var(--brand-green-dark);background:var(--brand-green-dark);color:#fff}.ai-send-button:hover{border-color:#056b2d;background:#056b2d;color:#fff}.ai-tool-button.is-listening{border-color:var(--coral);background:#fff2ef;color:#a33222;animation:voice-pulse 1.15s ease-in-out infinite}.ai-tool-button[hidden]{display:none!important}@keyframes voice-pulse{50%{box-shadow:0 0 0 7px rgba(237,101,73,.16)}}
+.ai-attachments{margin-top:22px;padding:17px;border:1px solid var(--line);border-radius:6px;background:var(--wash)}.ai-attachments[hidden]{display:none!important}.ai-attachment-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.ai-attachment-heading>div{display:flex;flex-direction:column}.ai-attachment-heading>div span,.ai-attachments>small{color:var(--muted);font-size:12px}.ai-attach-button{display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:8px 11px;border:1px solid #9cafb5;border-radius:5px;background:var(--paper);font-size:12px;font-weight:800;cursor:pointer}.ai-attach-button.is-disabled{cursor:not-allowed;opacity:.5}.ai-attach-button input{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}.ai-attachment-list{display:grid;gap:8px;margin-top:12px}.ai-attachment-item{display:grid;grid-template-columns:42px minmax(0,1fr) 32px;align-items:center;gap:10px;padding:8px;border:1px solid var(--line);border-radius:5px;background:var(--paper)}.ai-attachment-preview{display:grid;place-items:center;width:42px;height:42px;overflow:hidden;border-radius:4px;background:var(--wash);color:var(--muted);font-size:11px;font-weight:800;text-transform:uppercase}.ai-attachment-preview img{width:100%;height:100%;object-fit:cover}.ai-attachment-copy{display:flex;flex-direction:column;min-width:0}.ai-attachment-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.ai-attachment-copy span{color:var(--muted);font-size:11px}.ai-attachment-remove{width:32px;height:32px;border:0;background:transparent;color:var(--muted);font-size:20px;cursor:pointer}.ai-attachment-remove:hover{color:var(--coral)}
+html{color-scheme:light}html[data-theme="dark"]{color-scheme:dark;--ink:#edf3f6;--muted:#b5c2ce;--line:#3a4a57;--paper:#111820;--wash:#19242d;--navy:#0b2b42;--teal:#53c7c1;--brand-green:#40c963;--brand-green-dark:#2fa957;--brand-black:#edf3f6;--shadow:0 14px 36px rgba(0,0,0,.25)}html[data-theme="dark"] body,html[data-theme="dark"] .site-header,html[data-theme="dark"] .concept-card,html[data-theme="dark"] .start-here,html[data-theme="dark"] .reading-toggle button,html[data-theme="dark"] .editor-button,html[data-theme="dark"] .editor-dialog,html[data-theme="dark"] .ai-revision-panel,html[data-theme="dark"] .ai-revision-actions{background:var(--paper);color:var(--ink)}html[data-theme="dark"] .brand .brand-name b,html[data-theme="dark"] .brand-type small{color:var(--ink)}html[data-theme="dark"] .start-here>p{color:#f2cc70}html[data-theme="dark"] .editor-workspace,html[data-theme="dark"] .editor-disclosure,html[data-theme="dark"] .ai-revision-check{background:#142b21}html[data-theme="dark"] .ai-revision-panel textarea,html[data-theme="dark"] .editor-field input,html[data-theme="dark"] .article-copy.is-editing{background:#0d141a;color:var(--ink)}html[data-theme="dark"] .ai-revision-examples button{border-color:#4d6372;background:#1a2a35;color:#edf3f6}html[data-theme="dark"] .ai-revision-examples button:hover{border-color:var(--brand-green);color:#fff}html[data-theme="dark"] .ai-revision-progress{background:#302916}html[data-theme="dark"] .editor-error,html[data-theme="dark"] .ai-tool-button.is-listening{background:#351c18;color:#ffb4a4}html[data-theme="dark"] .ai-send-button{border-color:var(--brand-green);background:var(--brand-green-dark);color:#fff}html[data-theme="dark"] .action-secondary{background:var(--paper);color:var(--ink)}html[data-theme="dark"] .article-copy>p:first-child{color:#d4dee5}html[data-theme="dark"] .concept-image,html[data-theme="dark"] .article-hero{background:#202c35}
+@media(max-width:620px){.site-header nav{gap:10px}.site-header nav>a{display:none}.theme-toggle{width:36px;height:36px}.ai-attachment-heading{align-items:flex-start;flex-direction:column}.ai-attach-button{width:100%;justify-content:center}}
+"""
+STYLES += r"""
+html[data-theme="dark"] .reading-toggle{border-color:#597080;background:#0c1319}html[data-theme="dark"] .reading-toggle button{background:#18242d;color:#c7d2da}html[data-theme="dark"] .reading-toggle button span{color:#9fb0bd}html[data-theme="dark"] .reading-toggle button[aria-pressed="true"]{background:#2fa957;color:#fff;box-shadow:inset 0 0 0 2px #75e392}html[data-theme="dark"] .reading-toggle button[aria-pressed="true"] span{color:#effff3}.ai-attachment-status{margin:13px 0 0;padding:10px 12px;border-left:4px solid var(--gold);background:#fff7df;color:#604b1b;font-size:12px;font-weight:700;line-height:1.5}.ai-attachment-status[hidden]{display:none!important}html[data-theme="dark"] .ai-attachment-status{background:#302916;color:#f6d98d}
+"""
+STYLES += r"""
+.ai-change-navigation{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:16px;padding:13px 14px;border:1px solid #b7d8c0;border-radius:6px;background:#f2faf4}.ai-change-navigation[hidden]{display:none!important}.ai-change-navigation>div:first-child{display:flex;flex-direction:column;gap:2px}.ai-change-navigation span{color:var(--muted);font-size:12px}.ai-change-buttons{display:flex;gap:7px}.ai-change-buttons button{display:grid;place-items:center;width:36px;height:36px;padding:0;border:1px solid var(--brand-green-dark);border-radius:50%;background:var(--paper);color:var(--brand-green-dark);cursor:pointer}.ai-change-buttons button:hover{background:var(--brand-green-dark);color:#fff}.ai-change-buttons button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}.ai-change-buttons svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.ai-revision-highlight{position:relative;margin-left:-14px;padding-left:12px;border-left:4px solid var(--brand-green);background:rgba(7,143,36,.08);scroll-margin-top:110px}.ai-revision-highlight::before{content:"Updated";display:table;margin:0 0 7px;padding:3px 6px;border-radius:3px;background:var(--brand-green-dark);color:#fff;font:800 10px/1.2 Aptos,"Segoe UI",Arial,sans-serif;text-transform:uppercase}.ai-revision-highlight.is-current-change{outline:3px solid rgba(220,157,23,.48);outline-offset:4px}html[data-theme="dark"] .ai-change-navigation{border-color:#356846;background:#142b21}html[data-theme="dark"] .ai-change-buttons button{background:#18242d;color:#68db83}html[data-theme="dark"] .ai-revision-highlight{background:rgba(64,201,99,.14)}
+@media(min-width:761px){body.ai-revision-open{overflow:auto}.ai-revision-backdrop:not([hidden]){display:none}.ai-revision-panel{width:min(500px,42vw)}body.ai-revision-open .site-header,body.ai-revision-open main,body.ai-revision-open footer{margin-right:min(500px,42vw);transition:margin-right .18s ease}}
+@media(max-width:760px){.ai-change-navigation{align-items:flex-start}.ai-change-navigation>div:first-child{max-width:210px}.ai-revision-highlight{margin-left:-8px;padding-left:8px}}
+"""
 STYLES = STYLES.replace("letter-spacing:.08em", "letter-spacing:0")
 
 
 SCRIPT = r"""(() => {
+  const key = 'radarwire:theme';
+  let override = (() => { try { return localStorage.getItem(key); } catch (_) { return null; } })();
+  const system = matchMedia('(prefers-color-scheme: dark)');
+  const apply = (value) => {
+    const theme = value || (system.matches ? 'dark' : 'light');
+    document.documentElement.dataset.theme = theme;
+    document.querySelectorAll('[data-theme-icon]').forEach((icon) => { icon.textContent = theme === 'dark' ? '\u2600' : '\u263e'; });
+    document.querySelectorAll('[data-theme-toggle]').forEach((button) => { button.setAttribute('aria-label', `Use ${theme === 'dark' ? 'light' : 'dark'} theme`); });
+  };
+  apply(override);
+  document.querySelectorAll('[data-theme-toggle]').forEach((button) => button.addEventListener('click', () => {
+    const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    override = next;
+    try { localStorage.setItem(key, next); } catch (_) {}
+    apply(next);
+  }));
+  system.addEventListener?.('change', () => { if (!override) apply(null); });
+})();
+(() => {
   const contextNode = document.getElementById('editorial-context') || document.getElementById('review-access-context');
   if (!contextNode) return;
   const context = JSON.parse(contextNode.textContent);
@@ -495,6 +615,7 @@ SCRIPT = r"""(() => {
   }).catch(() => ({ ok: false, error: 'Editorial saving is temporarily unavailable.' }));
 })();
 """
+
 SCRIPT += """(() => { const bar = document.querySelector('.reading-progress span'); if (!bar) return; const update = () => { const max = document.documentElement.scrollHeight - innerHeight; bar.style.width = `${max > 0 ? (scrollY / max) * 100 : 0}%`; }; addEventListener('scroll', update, {passive:true}); addEventListener('resize', update); update(); })();\n"""
 SCRIPT += """(() => { const buttons = [...document.querySelectorAll('[data-reading-target]')]; if (!buttons.length) return; const copies = [...document.querySelectorAll('[data-reading-copy]')]; const time = document.querySelector('[data-active-read-time]'); const activate = (mode) => { buttons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.readingTarget === mode))); copies.forEach((copy) => { copy.hidden = copy.dataset.readingCopy !== mode; }); const active = buttons.find((button) => button.dataset.readingTarget === mode); const activeTime = active?.querySelector('span')?.textContent; if (time && activeTime) time.textContent = activeTime; document.documentElement.dataset.readingMode = mode; dispatchEvent(new Event('resize')); }; buttons.forEach((button) => button.addEventListener('click', () => activate(button.dataset.readingTarget))); activate('short'); })();\n"""
 SCRIPT += """(() => { const buttons = [...document.querySelectorAll('[data-reading-target]')]; if (!buttons.length) return; const requested = new URLSearchParams(location.search).get('view'); const initialMode = requested === 'full' ? 'full' : 'short'; const initial = buttons.find((button) => button.dataset.readingTarget === initialMode); if (initialMode === 'full') initial?.click(); buttons.forEach((button) => button.addEventListener('click', () => { const url = new URL(location.href); url.searchParams.set('view', button.dataset.readingTarget === 'full' ? 'full' : 'quick'); history.replaceState({}, '', url); })); })();\n"""
@@ -679,6 +800,12 @@ SCRIPT += r"""(() => {
     catch (problem) { if (error) { error.textContent = problem.message; error.hidden = false; } }
     finally { submit.disabled = false; }
   });
+  addEventListener('radar:revision-applied', () => {
+    persistLocal();
+    setEditing(true);
+    updateStatus('Updated draft ready to save');
+    announce('Updated Quick Read and Full Guide are ready.');
+  });
   document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && dialog && !dialog.hidden) closeDialog(); });
   updateStatus();
 })();
@@ -797,6 +924,553 @@ SCRIPT += r"""(() => {
   renderState(safeStorage(localStorage, (store) => store.getItem(stateKey), ''));
 })();
 """
+SCRIPT += r"""(() => {
+  const panel = document.querySelector('[data-ai-revision-panel]');
+  const backdrop = document.querySelector('[data-ai-revision-backdrop]');
+  const contextNode = document.getElementById('editorial-context');
+  const openButton = document.querySelector('[data-ai-revision-open]');
+  if (!panel || !backdrop || !contextNode || !openButton) return;
+  const context = JSON.parse(contextNode.textContent);
+  if (!context.ai_revision_enabled) return;
+  const instruction = panel.querySelector('[data-ai-revision-instruction]');
+  const submit = panel.querySelector('[data-ai-revision-submit]');
+  const discard = panel.querySelector('[data-ai-revision-discard]');
+  const retry = panel.querySelector('[data-ai-revision-retry]');
+  const apply = panel.querySelector('[data-ai-revision-apply]');
+  const progress = panel.querySelector('[data-ai-revision-progress]');
+  const state = panel.querySelector('[data-ai-revision-state]');
+  const detail = panel.querySelector('[data-ai-revision-detail]');
+  const resultBox = panel.querySelector('[data-ai-revision-result]');
+  const summary = panel.querySelector('[data-ai-revision-summary]');
+  const reviewBox = panel.querySelector('[data-ai-revision-review]');
+  const reviewItems = panel.querySelector('[data-ai-revision-review-items]');
+  const changeNavigation = panel.querySelector('[data-ai-change-navigation]');
+  const changeCount = panel.querySelector('[data-ai-change-count]');
+  const previousChange = panel.querySelector('[data-ai-change-previous]');
+  const nextChange = panel.querySelector('[data-ai-change-next]');
+  const error = panel.querySelector('[data-ai-revision-error]');
+  const voiceButton = panel.querySelector('[data-ai-voice]');
+  const voiceStatus = panel.querySelector('[data-ai-voice-status]');
+  const attachmentPanel = panel.querySelector('[data-ai-attachments]');
+  const attachmentInput = panel.querySelector('[data-ai-attachment-input]');
+  const attachmentList = panel.querySelector('[data-ai-attachment-list]');
+  const attachmentStatus = panel.querySelector('[data-ai-attachment-status]');
+  const attachButton = panel.querySelector('[data-ai-attach-button]');
+  const copies = Object.fromEntries([...document.querySelectorAll('[data-reading-copy]')].map((node) => [node.dataset.readingCopy, node]));
+  const draftKey = `radarwire:draft:${context.client_id}:${context.edition_id}:${context.article_slug}`;
+  const jobKey = `radarwire:revision-job:${context.client_id}:${context.edition_id}:${context.article_slug}`;
+  let completedResult = null;
+  let pollTimer = null;
+  let recognition = null;
+  let voiceHadError = false;
+  let voicePrefix = '';
+  let revisionBase = null;
+  let highlightedChanges = [];
+  let currentChangeIndex = 0;
+  const attachments = [];
+  let attachmentsAvailable = false;
+  let revisionServiceAvailable = false;
+  const defaultVoiceHelp = 'Press Enter or click the arrow to send. Use Shift+Enter for a new line. Nothing is published or emailed from this panel.';
+  const unavailableMessage = 'Live revisions are temporarily unavailable. You can still review, edit manually, and download either version.';
+
+  const checkRevisionService = async () => {
+    const healthUrl = new URL(context.job_api || '/api/editorial-jobs', location.href);
+    healthUrl.searchParams.set('health', '1');
+    try {
+      const response = await fetch(healthUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+      const body = await response.json().catch(() => ({}));
+      revisionServiceAvailable = response.ok && body.storage_available === true;
+    } catch {
+      revisionServiceAvailable = false;
+    }
+    submit.disabled = !revisionServiceAvailable;
+    voiceStatus.textContent = revisionServiceAvailable ? defaultVoiceHelp : unavailableMessage;
+    if (!revisionServiceAvailable && panel.getAttribute('aria-hidden') === 'false') {
+      error.textContent = unavailableMessage;
+      error.hidden = false;
+    }
+  };
+  const revisionHealthReady = checkRevisionService();
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SpeechRecognition && voiceButton) {
+    voiceButton.hidden = false;
+    recognition = new SpeechRecognition();
+    recognition.lang = document.documentElement.lang || 'en-US';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.onstart = () => {
+      voiceHadError = false;
+      voicePrefix = instruction.value.trim();
+      voiceButton.classList.add('is-listening');
+      voiceButton.setAttribute('aria-label', 'Stop listening');
+      voiceStatus.textContent = 'Listening now. Your words will appear above as you speak.';
+    };
+    recognition.onresult = (event) => {
+      const transcript = [...event.results].map((item) => item[0]?.transcript || '').join(' ').trim();
+      if (transcript) {
+        instruction.value = `${voicePrefix}${voicePrefix ? ' ' : ''}${transcript}`;
+        instruction.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    };
+    recognition.onerror = (event) => {
+      voiceHadError = true;
+      const messages = {
+        'not-allowed': 'Chrome blocked the microphone. Use the lock icon beside the address, allow Microphone, then try again.',
+        'service-not-allowed': 'Chrome blocked its speech service. Check this site\'s Microphone permission, then try again.',
+        'audio-capture': 'Chrome could not find an available microphone. Check your Windows input device, then try again.',
+        'no-speech': 'I did not hear any words. Click the microphone and try once more.',
+        'network': 'Chrome could not reach its speech service. You can type the request or try the microphone again.',
+      };
+      voiceStatus.textContent = messages[event.error] || 'Voice input was unavailable. You can continue typing normally.';
+    };
+    recognition.onend = () => {
+      voiceButton.classList.remove('is-listening');
+      voiceButton.setAttribute('aria-label', 'Dictate your instruction');
+      if (!voiceHadError) voiceStatus.textContent = instruction.value.trim() ? 'Review the words, then press Enter or click the arrow.' : defaultVoiceHelp;
+      instruction.focus();
+    };
+    voiceButton.addEventListener('click', async () => {
+      if (voiceButton.classList.contains('is-listening')) recognition.stop();
+      else {
+        voiceHadError = false;
+        voiceStatus.textContent = 'Checking microphone access...';
+        try {
+          if (navigator.mediaDevices?.getUserMedia) {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach((track) => track.stop());
+          }
+          recognition.start();
+        } catch (problem) {
+          voiceHadError = true;
+          voiceStatus.textContent = ['NotAllowedError', 'SecurityError'].includes(problem?.name)
+            ? 'Chrome blocked the microphone. Use the lock icon beside the address, allow Microphone, then try again.'
+            : 'Chrome could not start the microphone. Check your Windows input device or continue typing.';
+        }
+      }
+    });
+  } else if (voiceStatus) {
+    voiceStatus.textContent = 'Voice input is not available in this browser. ' + defaultVoiceHelp;
+  }
+
+  const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain']);
+  const formatBytes = (size) => size < 1024 * 1024 ? `${Math.max(1, Math.round(size / 1024))} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`;
+  const removeAttachment = async (item) => {
+    const index = attachments.indexOf(item);
+    if (index >= 0) attachments.splice(index, 1);
+    if (item.preview_url) URL.revokeObjectURL(item.preview_url);
+    renderAttachments();
+    if (item.record?.attachment_id) {
+      const url = new URL(context.attachment_api || '/api/editorial-attachments', location.href);
+      [['client_id', context.client_id], ['edition_id', context.edition_id], ['article_slug', context.article_slug], ['attachment_id', item.record.attachment_id]].forEach(([key, value]) => url.searchParams.set(key, value));
+      fetch(url, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {});
+    }
+  };
+  const renderAttachments = () => {
+    if (!attachmentList) return;
+    attachmentList.innerHTML = '';
+    attachments.forEach((item) => {
+      const row = document.createElement('div');
+      row.className = 'ai-attachment-item';
+      const preview = document.createElement('span');
+      preview.className = 'ai-attachment-preview';
+      if (item.file.type.startsWith('image/')) {
+        const image = document.createElement('img');
+        item.preview_url ||= URL.createObjectURL(item.file);
+        image.src = item.preview_url;
+        image.alt = '';
+        preview.append(image);
+      } else preview.textContent = item.file.name.split('.').pop()?.slice(0, 4) || 'file';
+      const copy = document.createElement('span');
+      copy.className = 'ai-attachment-copy';
+      const name = document.createElement('strong');
+      name.textContent = item.file.name;
+      const status = document.createElement('span');
+      status.textContent = item.status || `${formatBytes(item.file.size)} ready`;
+      copy.append(name, status);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'ai-attachment-remove';
+      remove.setAttribute('aria-label', `Remove ${item.file.name}`);
+      remove.textContent = '\u00d7';
+      remove.addEventListener('click', () => removeAttachment(item));
+      row.append(preview, copy, remove);
+      attachmentList.append(row);
+    });
+  };
+  const addFiles = (files) => {
+    error.hidden = true;
+    if (!attachmentsAvailable) {
+      error.textContent = 'Attachments are temporarily unavailable. Live revision sending will return when storage is restored.';
+      error.hidden = false;
+      return;
+    }
+    for (const file of files) {
+      if (attachments.length >= 3) { error.textContent = 'Attach no more than three files at a time.'; error.hidden = false; break; }
+      if (!allowedTypes.has(file.type)) { error.textContent = `${file.name} is not a supported image, PDF, Word, or text file.`; error.hidden = false; continue; }
+      if (file.size <= 0 || file.size > 4 * 1024 * 1024) { error.textContent = `${file.name} must be smaller than 4 MB.`; error.hidden = false; continue; }
+      if (attachments.some((item) => item.file.name === file.name && item.file.size === file.size)) continue;
+      attachments.push({ file, status: `${formatBytes(file.size)} ready`, record: null, preview_url: null });
+    }
+    renderAttachments();
+  };
+  if (context.ai_attachments_enabled && attachmentPanel && attachmentInput) {
+    attachmentPanel.hidden = false;
+    attachmentInput.disabled = true;
+    attachButton?.classList.add('is-disabled');
+    if (attachmentStatus) {
+      attachmentStatus.hidden = false;
+      attachmentStatus.textContent = 'Checking attachment availability...';
+    }
+    revisionHealthReady
+      .then(() => {
+        attachmentsAvailable = revisionServiceAvailable;
+        attachmentInput.disabled = !attachmentsAvailable;
+        attachButton?.classList.toggle('is-disabled', !attachmentsAvailable);
+        if (attachmentStatus) {
+          attachmentStatus.hidden = attachmentsAvailable;
+          attachmentStatus.textContent = attachmentsAvailable
+            ? ''
+            : 'Attachments are temporarily unavailable. Live revision sending will return when storage is restored.';
+        }
+      })
+      .catch(() => {
+        attachmentsAvailable = false;
+        if (attachmentStatus) attachmentStatus.textContent = 'Attachments are temporarily unavailable. Live revision sending will return when storage is restored.';
+      });
+    attachmentInput.addEventListener('change', () => { addFiles([...attachmentInput.files]); attachmentInput.value = ''; });
+    panel.addEventListener('paste', (event) => {
+      const images = [...(event.clipboardData?.files || [])].filter((file) => file.type.startsWith('image/'));
+      if (images.length) { event.preventDefault(); addFiles(images); }
+    });
+  }
+
+  const uploadAttachment = async (item) => {
+    if (item.record) return item.record;
+    item.status = 'Uploading privately...';
+    renderAttachments();
+    const url = new URL(context.attachment_api || '/api/editorial-attachments', location.href);
+    [['client_id', context.client_id], ['edition_id', context.edition_id], ['article_slug', context.article_slug]].forEach(([key, value]) => url.searchParams.set(key, value));
+    const response = await fetch(url, {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': item.file.type, 'X-Radar-Filename': encodeURIComponent(item.file.name) }, body: item.file,
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const unavailable = response.status === 503 || body.code === 'ATTACHMENT_STORAGE_UNAVAILABLE';
+      throw new Error(unavailable
+        ? 'Attachments and live revisions are temporarily unavailable. Your draft is unchanged; try again after storage is restored.'
+        : (body.error || `RadarWire could not attach ${item.file.name}.`));
+    }
+    item.record = body.attachment;
+    item.status = 'Attached privately';
+    renderAttachments();
+    return item.record;
+  };
+
+  const open = () => {
+    panel.setAttribute('aria-hidden', 'false');
+    backdrop.hidden = false;
+    document.body.classList.add('ai-revision-open');
+    if (!revisionServiceAvailable) {
+      error.textContent = unavailableMessage;
+      error.hidden = false;
+    }
+    const pendingJob = localStorage.getItem(jobKey);
+    if (pendingJob) {
+      setProgress('Checking your requested update', 'RadarWire is reconnecting to the saved request.');
+      poll(pendingJob);
+    }
+    instruction.focus();
+  };
+  const close = () => {
+    if (voiceButton?.classList.contains('is-listening')) recognition?.stop();
+    clearTimeout(pollTimer);
+    panel.setAttribute('aria-hidden', 'true');
+    backdrop.hidden = true;
+    document.body.classList.remove('ai-revision-open');
+  };
+  const plainText = (node) => node.innerText.replace(/\n{3,}/g, '\n\n').trim();
+  const cleanHtml = (value) => {
+    const template = document.createElement('template');
+    template.innerHTML = value;
+    template.content.querySelectorAll('script,style,iframe,object,embed,form,input,button,select,textarea,link,meta,base,svg,math').forEach((node) => node.remove());
+    template.content.querySelectorAll('*').forEach((node) => [...node.attributes].forEach((attribute) => {
+      const name = attribute.name.toLowerCase();
+      const normalized = attribute.value.trim().toLowerCase().replace(/\s+/g, '');
+      if (name.startsWith('on') || name === 'srcdoc') node.removeAttribute(attribute.name);
+      if (['href', 'src'].includes(name) && /^(javascript:|vbscript:|data:text\/html)/.test(normalized)) node.removeAttribute(attribute.name);
+    }));
+    return template.innerHTML;
+  };
+  const comparableBlocks = (value) => {
+    const template = document.createElement('template');
+    template.innerHTML = cleanHtml(value);
+    return [...template.content.children].map((node) => `${node.tagName}:${node.textContent.replace(/\s+/g, ' ').trim()}`);
+  };
+  const changedBlockIndexes = (before, after) => {
+    const rows = before.length + 1;
+    const columns = after.length + 1;
+    const matrix = Array.from({ length: rows }, () => Array(columns).fill(0));
+    for (let left = before.length - 1; left >= 0; left -= 1) {
+      for (let right = after.length - 1; right >= 0; right -= 1) {
+        matrix[left][right] = before[left] === after[right]
+          ? matrix[left + 1][right + 1] + 1
+          : Math.max(matrix[left + 1][right], matrix[left][right + 1]);
+      }
+    }
+    const matched = new Set();
+    let left = 0;
+    let right = 0;
+    while (left < before.length && right < after.length) {
+      if (before[left] === after[right]) {
+        matched.add(right);
+        left += 1;
+        right += 1;
+      } else if (matrix[left + 1][right] >= matrix[left][right + 1]) left += 1;
+      else right += 1;
+    }
+    return after.map((_, index) => index).filter((index) => !matched.has(index));
+  };
+  const renderVersionPreview = (version, updatedHtml) => {
+    const copy = copies[version];
+    if (!copy) return;
+    const safeUpdated = cleanHtml(updatedHtml);
+    const changed = new Set(changedBlockIndexes(comparableBlocks(revisionBase?.[version] || ''), comparableBlocks(safeUpdated)));
+    copy.innerHTML = safeUpdated;
+    [...copy.children].forEach((node, index) => {
+      if (changed.has(index)) node.classList.add('ai-revision-highlight');
+    });
+  };
+  const visibleChanges = () => Object.values(copies)
+    .filter((copy) => copy && !copy.hidden)
+    .flatMap((copy) => [...copy.children].filter((node) => node.classList.contains('ai-revision-highlight')));
+  const showCurrentChange = (scroll = true) => {
+    highlightedChanges.forEach((node) => node.classList.remove('is-current-change'));
+    if (!highlightedChanges.length) return;
+    currentChangeIndex = Math.max(0, Math.min(currentChangeIndex, highlightedChanges.length - 1));
+    const current = highlightedChanges[currentChangeIndex];
+    current.classList.add('is-current-change');
+    changeCount.textContent = `${highlightedChanges.length} change${highlightedChanges.length === 1 ? '' : 's'} highlighted - ${currentChangeIndex + 1} of ${highlightedChanges.length}`;
+    if (scroll) current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+  const refreshChangeNavigation = (scroll = false) => {
+    highlightedChanges = visibleChanges();
+    currentChangeIndex = 0;
+    changeNavigation.hidden = highlightedChanges.length === 0;
+    if (!highlightedChanges.length) changeCount.textContent = 'No visible text changes';
+    showCurrentChange(scroll);
+  };
+  const restoreRevisionBase = () => {
+    if (revisionBase) {
+      Object.entries(copies).forEach(([version, copy]) => {
+        if (copy && revisionBase[version] != null) copy.innerHTML = revisionBase[version];
+      });
+    }
+    revisionBase = null;
+    highlightedChanges = [];
+    currentChangeIndex = 0;
+    changeNavigation.hidden = true;
+  };
+  const setProgress = (heading, message) => {
+    progress.hidden = false;
+    state.textContent = heading;
+    detail.textContent = message;
+    discard.textContent = 'Close';
+  };
+  const reset = () => {
+    restoreRevisionBase();
+    completedResult = null;
+    progress.hidden = true;
+    resultBox.hidden = true;
+    error.hidden = true;
+    submit.hidden = false;
+    submit.disabled = !revisionServiceAvailable;
+    retry.hidden = true;
+    apply.hidden = true;
+    discard.textContent = 'Cancel';
+    instruction.disabled = false;
+    if (voiceButton) voiceButton.disabled = false;
+    instruction.focus();
+  };
+  const fail = (message) => {
+    clearTimeout(pollTimer);
+    progress.hidden = true;
+    error.textContent = message;
+    error.hidden = false;
+    localStorage.removeItem(jobKey);
+    submit.hidden = true;
+    retry.hidden = false;
+    discard.textContent = 'Discard update';
+    instruction.disabled = false;
+    if (voiceButton) voiceButton.disabled = false;
+  };
+  const showResult = (value) => {
+    revisionBase ||= {
+      short: copies.short?.innerHTML || '',
+      full: copies.full?.innerHTML || '',
+    };
+    completedResult = value;
+    progress.hidden = true;
+    error.hidden = true;
+    resultBox.hidden = false;
+    summary.innerHTML = '';
+    (value.change_summary || []).forEach((item) => { const li = document.createElement('li'); li.textContent = item; summary.append(li); });
+    reviewItems.innerHTML = '';
+    const unresolved = value.unresolved_review_items || [];
+    unresolved.forEach((item) => { const li = document.createElement('li'); li.textContent = item; reviewItems.append(li); });
+    reviewBox.hidden = unresolved.length === 0;
+    submit.hidden = true;
+    retry.hidden = false;
+    apply.hidden = false;
+    discard.textContent = 'Discard update';
+    instruction.disabled = false;
+    if (voiceButton) voiceButton.disabled = false;
+    renderVersionPreview('short', value.versions?.short?.html || '');
+    renderVersionPreview('full', value.versions?.full?.html || '');
+    setTimeout(() => refreshChangeNavigation(true), 0);
+    localStorage.removeItem(jobKey);
+    attachments.forEach((item) => {
+      item.record = null;
+      item.status = `${formatBytes(item.file.size)} ready to reuse`;
+    });
+    renderAttachments();
+  };
+  const panelIsActive = () => panel.getAttribute('aria-hidden') === 'false' && !document.hidden;
+  const schedulePoll = (jobId, delay) => {
+    clearTimeout(pollTimer);
+    if (!panelIsActive()) return;
+    pollTimer = setTimeout(() => poll(jobId), delay);
+  };
+  const poll = async (jobId) => {
+    clearTimeout(pollTimer);
+    if (!panelIsActive()) return;
+    const url = new URL(context.job_api || '/api/editorial-jobs', location.href);
+    url.searchParams.set('client_id', context.client_id);
+    url.searchParams.set('edition_id', context.edition_id);
+    url.searchParams.set('job_id', jobId);
+    try {
+      const response = await fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || 'RadarWire could not check this update.');
+      const latest = body.job?.state || {};
+      if (latest.state === 'completed') return showResult(latest.result);
+      if (latest.state === 'failed') return fail(latest.message || 'RadarWire could not prepare this update. Your original draft is unchanged.');
+      if (latest.state === 'processing') setProgress('Hermes is revising both versions', 'RadarWire will check the result before it appears here.');
+      else setProgress('Update safely queued', 'Your computer can be offline. RadarWire will continue when the local worker is available.');
+      schedulePoll(jobId, 15000);
+    } catch (problem) {
+      setProgress('Update is still saved', 'RadarWire temporarily lost contact. It will check again automatically.');
+      schedulePoll(jobId, 30000);
+    }
+  };
+  const requestRevision = async () => {
+    const request = instruction.value.trim();
+    if (!revisionServiceAvailable) throw new Error(unavailableMessage);
+    if (request.length < 8) throw new Error('Tell RadarWire what you would like changed.');
+    if (!copies.short || !copies.full) throw new Error('Both reading versions are required for a coordinated update.');
+    revisionBase ||= { short: copies.short.innerHTML, full: copies.full.innerHTML };
+    const session = await (window.radarEditorialSessionReady || Promise.resolve({ ok: false }));
+    if (!session?.ok) throw new Error('RadarWire could not connect. Refresh the page and try once more.');
+    const uploadedAttachments = [];
+    for (const item of attachments) uploadedAttachments.push(await uploadAttachment(item));
+    const payload = {
+      schema_version: 1, client_id: context.client_id, client_name: context.client_name,
+      edition_id: context.edition_id, article_slug: context.article_slug, article_title: context.article_title,
+      instruction: request, scope: 'both',
+      versions: {
+        short: { html: cleanHtml(copies.short.innerHTML), text: plainText(copies.short) },
+        full: { html: cleanHtml(copies.full.innerHTML), text: plainText(copies.full) },
+      },
+      attachments: uploadedAttachments,
+      truth_profile: context.truth_profile || '1099fire-v1', source_url: location.href,
+    };
+    const response = await fetch(context.job_api || '/api/editorial-jobs', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || 'RadarWire could not save this request.');
+    localStorage.setItem(jobKey, body.job_id);
+    submit.hidden = true;
+    instruction.disabled = true;
+    if (voiceButton) voiceButton.disabled = true;
+    setProgress('Update safely queued', 'You can safely close this page while RadarWire prepares it.');
+    poll(body.job_id);
+  };
+
+  openButton.addEventListener('click', open);
+  backdrop.addEventListener('click', close);
+  panel.querySelectorAll('[data-ai-revision-close]').forEach((button) => button.addEventListener('click', close));
+  previousChange.addEventListener('click', () => {
+    if (!highlightedChanges.length) return;
+    currentChangeIndex = (currentChangeIndex - 1 + highlightedChanges.length) % highlightedChanges.length;
+    showCurrentChange();
+  });
+  nextChange.addEventListener('click', () => {
+    if (!highlightedChanges.length) return;
+    currentChangeIndex = (currentChangeIndex + 1) % highlightedChanges.length;
+    showCurrentChange();
+  });
+  document.querySelectorAll('[data-reading-target]').forEach((button) => button.addEventListener('click', () => {
+    if (completedResult) setTimeout(() => refreshChangeNavigation(false), 0);
+  }));
+  discard.addEventListener('click', () => {
+    if (localStorage.getItem(jobKey)) return close();
+    reset();
+    instruction.value = '';
+    voiceStatus.textContent = defaultVoiceHelp;
+    while (attachments.length) {
+      const item = attachments.pop();
+      if (item?.preview_url) URL.revokeObjectURL(item.preview_url);
+    }
+    renderAttachments();
+    close();
+  });
+  panel.querySelectorAll('[data-ai-example]').forEach((button) => button.addEventListener('click', () => { instruction.value = button.dataset.aiExample; instruction.focus(); }));
+  const sendRevision = async () => {
+    if (submit.disabled || submit.hidden) return;
+    if (voiceButton?.classList.contains('is-listening')) recognition?.stop();
+    submit.disabled = true;
+    error.hidden = true;
+    try { await requestRevision(); } catch (problem) { error.textContent = problem.message; error.hidden = false; submit.disabled = false; }
+  };
+  submit.addEventListener('click', sendRevision);
+  instruction.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      sendRevision();
+    }
+  });
+  retry.addEventListener('click', () => {
+    reset();
+    instruction.value = '';
+    voiceStatus.textContent = defaultVoiceHelp;
+  });
+  apply.addEventListener('click', () => {
+    if (!completedResult?.versions?.short || !completedResult?.versions?.full) return fail('The updated versions were incomplete. Your original is unchanged.');
+    copies.short.innerHTML = cleanHtml(completedResult.versions.short.html);
+    copies.full.innerHTML = cleanHtml(completedResult.versions.full.html);
+    revisionBase = null;
+    highlightedChanges = [];
+    changeNavigation.hidden = true;
+    localStorage.setItem(draftKey, JSON.stringify({ short: copies.short.innerHTML, full: copies.full.innerHTML }));
+    dispatchEvent(new CustomEvent('radar:revision-applied'));
+    close();
+  });
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && panel.getAttribute('aria-hidden') === 'false') close(); });
+  document.addEventListener('visibilitychange', () => {
+    clearTimeout(pollTimer);
+    const pendingJob = localStorage.getItem(jobKey);
+    if (pendingJob && panelIsActive()) poll(pendingJob);
+  });
+  const pendingJob = localStorage.getItem(jobKey);
+  if (pendingJob) {
+    openButton.textContent = 'Check requested update';
+    setProgress('Checking your requested update', 'RadarWire is reconnecting to the saved request.');
+  }
+})();
+"""
+
+ASSET_VERSION = hashlib.sha256((STYLES + SCRIPT).encode("utf-8")).hexdigest()[:12]
 
 
 def _safe_file(path: Path, root: Path, label: str) -> Path:
@@ -878,6 +1552,8 @@ def build_editorial_review_kit(manifest_path: Path, output_dir: Path, *, overwri
         "article_count": len(package["articles"]),
         "email_preview": bool(package.get("email_preview")),
         "editorial_editing": bool(package.get("editorial_editing")),
+        "ai_revision_enabled": bool(package.get("ai_revision_enabled")),
+        "ai_attachments_enabled": bool(package.get("ai_attachments_enabled")),
         "files": [path.name for path in targets],
         "sends_email": False,
         "publishes": False,
@@ -911,6 +1587,7 @@ def validate_editorial_review_kit(manifest_path: Path, output_dir: Path) -> dict
         raise EditorialReviewError("Review index is missing claim-verification status")
     if (
         index.select_one(".start-here") is None
+        or index.select_one("[data-theme-toggle]") is None
         or len(index.select('.concept-actions a[href*="?view=quick"]')) != len(articles)
         or len(index.select('.concept-actions a[href*="?view=full"]')) != len(articles)
     ):
@@ -980,6 +1657,23 @@ def validate_editorial_review_kit(manifest_path: Path, output_dir: Path) -> dict
                 or page.select_one(".editor-disclosure") is None
             ):
                 raise EditorialReviewError(f"Article {article['rank']} is missing the private editorial workspace")
+        if package.get("ai_revision_enabled"):
+            if (
+                page.select_one("[data-ai-revision-open]") is None
+                or page.select_one("[data-ai-revision-panel]") is None
+                or page.select_one("[data-ai-revision-instruction]") is None
+                or page.select_one("[data-ai-revision-submit]") is None
+                or not article.get("full_body")
+            ):
+                raise EditorialReviewError(f"Article {article['rank']} is missing the coordinated AI revision workspace")
+        if package.get("ai_attachments_enabled"):
+            if (
+                not package.get("ai_revision_enabled")
+                or page.select_one("[data-ai-attachments]") is None
+                or page.select_one("[data-ai-attachment-input]") is None
+                or not str(package.get("attachment_api") or "").strip()
+            ):
+                raise EditorialReviewError(f"Article {article['rank']} is missing private attachment controls")
         if any(
             re.search(
                 r"TaxBandits|Tax1099|BoomTax|eFileMyForms|Sovos|Avalara",

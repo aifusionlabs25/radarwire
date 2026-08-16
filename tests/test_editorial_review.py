@@ -237,7 +237,102 @@ def test_editorial_review_kit_can_enable_private_revision_workspace(tmp_path):
     assert 'id="review-access-context"' in index
     assert '"edition_id": "edition-2026-08-14"' in index
     assert '"session_api": "/api/editorial-session"' in index
-    assert '<script src="review.js"></script>' in index
+    assert '<script src="review.js?v=' in index
+    assert '<link rel="stylesheet" href="styles.css?v=' in index
+    assert validate_editorial_review_kit(manifest, tmp_path)["status"] == "ok"
+
+
+def test_editorial_review_kit_can_enable_coordinated_ai_revision_panel(tmp_path):
+    manifest = package(tmp_path)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    for article in data["articles"]:
+        full_body = tmp_path / "content" / f"article-{article['rank']}-full.md"
+        full_body.write_text((tmp_path / "content" / article["body"]).read_text(encoding="utf-8"), encoding="utf-8")
+        article["full_body"] = full_body.name
+        article["revision_suggestions"] = [
+            {
+                "label": f"Clarify direction {article['rank']}",
+                "instruction": f"Clarify the opening for direction {article['rank']} without changing factual claims.",
+            },
+            {
+                "label": "Strengthen the next step",
+                "instruction": "Make the next step more practical and specific.",
+            },
+        ]
+    data.update(
+        {
+            "client_id": "amy-huffman",
+            "edition_id": "edition-2026-08-14",
+            "editorial_editing": True,
+            "ai_revision_enabled": True,
+            "ai_attachments_enabled": True,
+            "job_api": "/api/editorial-jobs",
+            "attachment_api": "/api/editorial-attachments",
+            "truth_profile": "1099fire-v1",
+        }
+    )
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+
+    result = build_editorial_review_kit(manifest, tmp_path)
+    page = (tmp_path / "article-1.html").read_text(encoding="utf-8")
+    script = (tmp_path / "review.js").read_text(encoding="utf-8")
+
+    assert result["ai_revision_enabled"] is True
+    assert 'data-ai-revision-open' in page
+    assert 'data-ai-revision-panel' in page
+    assert 'data-ai-revision-instruction' in page
+    assert 'data-ai-revision-submit' in page
+    assert 'data-ai-revision-discard' in page
+    assert 'data-ai-change-navigation' in page
+    assert 'data-ai-change-previous' in page
+    assert 'data-ai-change-next' in page
+    assert 'data-ai-voice' in page
+    assert "Clarify direction 1" in page
+    assert "Clarify direction 2" not in page
+    assert 'data-ai-attachments' in page
+    assert 'data-ai-attachment-input' in page
+    assert 'data-ai-attachment-status' in page
+    assert '"job_api": "/api/editorial-jobs"' in page
+    assert '"attachment_api": "/api/editorial-attachments"' in page
+    assert '"truth_profile": "1099fire-v1"' in page
+    assert "scope: 'both'" in script
+    assert "Quick Read and Full Guide" in page
+    assert "Nothing is published or emailed from this panel." in page
+    assert "radar:revision-applied" in script
+    assert "SpeechRecognition" in script
+    assert "navigator.mediaDevices?.getUserMedia" in script
+    assert "recognition.interimResults = true" in script
+    assert "Your words will appear above as you speak." in script
+    assert "event.key === 'Enter'" in script
+    assert "!event.shiftKey" in script
+    assert "discard.textContent = 'Discard update'" in script
+    assert "instruction.value = ''" in script
+    assert "changedBlockIndexes" in script
+    assert "renderVersionPreview('short'" in script
+    assert "restoreRevisionBase" in script
+    assert "scrollIntoView" in script
+    assert "Checking RadarWire availability" in page
+    assert "Press Enter or click the arrow" in script
+    assert 'title="Send request (Enter)"' in page
+    assert "X-Radar-Filename" in script
+    assert "body.storage_available === true" in script
+    assert "Attachments are temporarily unavailable" in script
+    assert "Live revisions are temporarily unavailable" in script
+    assert "const revisionHealthReady = checkRevisionService();" in script
+    assert "const panelIsActive" in script
+    assert "visibilitychange" in script
+    assert "schedulePoll(jobId, 15000)" in script
+    assert "schedulePoll(jobId, 30000)" in script
+    assert "setTimeout(() => poll(jobId), 4000)" not in script
+    assert "setTimeout(() => poll(jobId), 8000)" not in script
+    assert "prefers-color-scheme: dark" in script
+    assert 'data-theme-toggle' in page
+    styles = (tmp_path / "styles.css").read_text(encoding="utf-8")
+    assert 'html[data-theme="dark"] .ai-revision-examples button' in styles
+    assert 'html[data-theme="dark"] .reading-toggle button[aria-pressed="true"]' in styles
+    assert "box-shadow:inset 0 0 0 2px #75e392" in styles
+    assert ".ai-revision-highlight" in styles
+    assert "body.ai-revision-open{overflow:auto}" in styles
     assert validate_editorial_review_kit(manifest, tmp_path)["status"] == "ok"
 
 

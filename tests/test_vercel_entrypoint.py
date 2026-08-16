@@ -34,3 +34,28 @@ def test_vercel_security_headers_are_part_of_every_deployment():
         "X-Robots-Tag",
     ):
         assert header in config
+
+    assert 'microphone=(self)' in config
+    assert 'microphone=()' not in config
+
+
+def test_attachment_endpoint_reports_storage_health_without_leaking_provider_errors():
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "api" / "editorial-attachments.js").read_text(encoding="utf-8")
+
+    assert "storage_available: storageAvailable" in source
+    assert "ATTACHMENT_STORAGE_UNAVAILABLE" in source
+    assert "Attachments are temporarily unavailable" in source
+    assert "console.error('[editorial-attachments]" in source
+
+    jobs_source = (root / "api" / "editorial-jobs.js").read_text(encoding="utf-8")
+    assert "storage_available: storageAvailable" in jobs_source
+    assert "EDITORIAL_STORAGE_UNAVAILABLE" in jobs_source
+    assert "Live revisions are temporarily unavailable" in jobs_source
+    assert "editorial-health/provider-probe.json" in jobs_source
+    assert "jobLatestPath" in jobs_source
+    assert "readPrivateJson(jobLatestPath(reference))" in jobs_source
+    assert "list({ prefix: 'editorial-jobs/', limit: 1 })" not in jobs_source
+
+    assert "editorial-health/provider-probe.json" in source
+    assert "list({ prefix: 'editorial-jobs/', limit: 1 })" not in source

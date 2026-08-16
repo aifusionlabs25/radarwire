@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "profile_id": "1099fire-v1",
+  "client_id": "amy-huffman",
+  "client_name": "1099FIRE",
+  "confirmed_at": "2026-08-16",
+  "business_truths": [
+    "1099FIRE does not currently offer direct state filing.",
+    "When state participation is relevant, describe only Combined Federal/State Filing support and avoid implying direct filing with an individual state.",
+    "A final article should be human, practical, visually suggestive, and include a useful call to action."
+  ],
+  "prohibited_claim_patterns": [
+    "direct state filing",
+    "state filing directly",
+    "file directly with the state",
+    "files directly with the state",
+    "state-only filing"
+  ],
+  "forbidden_competitor_brands": [
+    "Avalara",
+    "BoomTax",
+    "eFileMyForms",
+    "Sovos",
+    "Tax1099",
+    "TaxBandits"
+  ],
+  "style_rules": [
+    "Never use an em dash.",
+    "Use hyphens sparingly.",
+    "Prefer plain-English mental pictures, useful analogies, charts, or visual suggestions when they improve understanding.",
+    "Always retain or improve the 1099FIRE call to action."
+  ]
+}

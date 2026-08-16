@@ -34,6 +34,10 @@ def test_weekly_publisher_has_clean_gates_resume_and_live_verification():
     assert "Sync-DeploymentShell $ProjectRoot $SiteRoot" in script
     assert "'vercel.json'" in script
     assert "api\\editorial-revisions.js" in script
+    assert "api\\editorial-jobs.js" in script
+    assert "api\\_editorial_job_core.mjs" in script
+    assert "api\\editorial-attachments.js" in script
+    assert "api\\_editorial_attachment_core.mjs" in script
     assert "api\\editorial-session.js" in script
     assert "api\\_editorial_session_core.mjs" in script
     assert "api\\editorial-status.js" in script

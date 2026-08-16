@@ -114,3 +114,56 @@ python -m radar.cli content-studio `
 ```
 
 Hermes receives a bounded exclusion list. RadarWire also rejects generated brief titles that are materially similar to a recorded published title. This prevents accidental topic reuse without treating an unpublished selection as final.
+
+## Optional AI revision panel
+
+The AI revision panel is a separate, disabled-by-default layer over the existing manual editor. Enable it only on an isolated review manifest first:
+
+```json
+{
+  "editorial_editing": true,
+  "ai_revision_enabled": true,
+  "job_api": "/api/editorial-jobs",
+  "truth_profile": "1099fire-v1"
+}
+```
+
+`api/editorial-jobs.js` stores an immutable request and append-only state events in private Vercel Blob storage. The existing same-site editorial session authorizes client submission and status checks. Only the operator bearer credential may claim, complete, fail, retry, or report a worker heartbeat.
+
+The local worker uses outbound HTTPS only:
+
+```powershell
+$env:PYTHONPATH = 'src'
+python -m radar.cli editorial-worker `
+  --config config.pilot.amy-huffman-hermes-full-preview.yaml `
+  --endpoint https://site-export-preview.vercel.app/api/editorial-jobs `
+  --watch
+```
+
+For unattended Windows operation, `scripts/windows/run-editorial-worker.ps1` decrypts the existing DPAPI-protected editorial credential only inside the child process. `scripts/windows/install-editorial-worker-task.ps1` prepares an at-logon, restartable task but defaults to `WhatIfOnly`. It does not register or start the worker without a separate intentional activation.
+
+The worker runs one article job at a time, permits only bounded state transitions, retries a failed Hermes transformation once, and validates both reading versions against `hermes/radarwire-editorial-reviser/references/1099fire-truth-profile.json`. It rejects active markup, unapproved URLs and images, competitor names, prohibited 1099FIRE service claims, missing calls to action, and em dashes. It never sends email, publishes, changes source configuration, or exposes a shell to the client instruction.
+
+The worker replaces one private heartbeat record at most every five minutes. An operator can inspect it with an authorized `GET /api/editorial-jobs?worker_health=1&client_id=amy-huffman`; a heartbeat older than 15 minutes reports `online: false`.
+
+If the worker is offline, Amy may continue to view, edit, save, and download existing drafts. AI requests stay queued in Vercel until the local worker returns. The browser preserves the job ID and resumes status checks after a refresh.
+
+### Optional client conveniences
+
+The review kit follows the visitor's system light or dark preference and includes a small theme control. The override is kept only in that browser's local storage.
+
+Voice dictation uses the browser's `SpeechRecognition` implementation when available. It is a progressive enhancement: unsupported browsers retain the normal text field, dictated words remain editable, and dictation never submits a revision automatically.
+
+Private attachments are separately gated:
+
+```json
+{
+  "ai_revision_enabled": true,
+  "ai_attachments_enabled": true,
+  "attachment_api": "/api/editorial-attachments"
+}
+```
+
+The client may paste a screenshot or attach up to three PNG, JPEG, WebP, PDF, Word, or text files, each smaller than 4 MB. `api/editorial-attachments.js` verifies the declared file signature and stores the bytes privately. The local worker retrieves attachments over authenticated outbound HTTPS. Word, PDF, and text content is extracted locally; images use Hermes's bounded image-analysis path before revision. Attachment context is treated as untrusted reference material and never as authority or executable instruction.
+
+Do not upload taxpayer records, TINs, Social Security numbers, recipient files, or client data. Successfully processed attachments are removed from Blob storage when the job completes. Failed-job attachments remain private for operator retry and should be covered by normal private-storage retention cleanup.

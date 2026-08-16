@@ -27,6 +27,7 @@ from .publication_history import (
 )
 from .voice_library import VoiceLibraryError, load_voice_examples, sync_voice_library
 from .editorial_review import EditorialReviewError, build_editorial_review_kit, validate_editorial_review_kit
+from .editorial_worker import EditorialWorkerError, run_editorial_worker
 from .emailer import (
     deliver_editorial_review,
     deliver_existing_report,
@@ -582,6 +583,32 @@ def editorial_review_validate(
     except (EditorialReviewError, OSError, ValueError, json.JSONDecodeError) as exc:
         typer.echo(json.dumps({"status": "refused", "error": str(exc)}, indent=2))
         raise typer.Exit(2) from exc
+    typer.echo(json.dumps(result, indent=2))
+
+
+@app.command("editorial-worker")
+def editorial_worker(
+    config: str = typer.Option(..., "--config", help="Local RadarWire configuration with Hermes enabled"),
+    endpoint: str = typer.Option(..., "--endpoint", help="Hosted RadarWire editorial-jobs API URL"),
+    truth_profile: str = typer.Option(
+        "hermes/radarwire-editorial-reviser/references/1099fire-truth-profile.json",
+        "--truth-profile",
+        help="Reviewed client truth profile JSON",
+    ),
+    watch: bool = typer.Option(False, "--watch", help="Continue polling for client revision jobs"),
+    poll_seconds: int = typer.Option(20, "--poll-seconds", min=5, max=300),
+):
+    try:
+        result = run_editorial_worker(
+            cfg(config),
+            endpoint,
+            Path(truth_profile),
+            watch=watch,
+            poll_seconds=poll_seconds,
+        )
+    except (EditorialWorkerError, OSError, ValueError, json.JSONDecodeError) as exc:
+        typer.echo(json.dumps({"status": "failed", "error": str(exc)}, indent=2))
+        raise typer.Exit(1) from exc
     typer.echo(json.dumps(result, indent=2))
 
 

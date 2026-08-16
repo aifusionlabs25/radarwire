@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from .analysis import build_oneshot_prompt, hermes_subprocess_env
+from .analysis import WINDOWS_ONESHOT_PAYLOAD_CHAR_CAP, build_oneshot_prompt, hermes_subprocess_env
 from .claim_verification import build_needs_review_ledger, validate_claim_verification
 
 
@@ -114,6 +114,15 @@ def normalize_content_studio_data(data: Any, model: type[BaseModel]) -> tuple[An
             if isinstance(value, str) and len(value) > limit:
                 data[key] = value[:limit].rstrip()
                 notes.append(f"trimmed draft.{key} from {len(value)} to {limit} chars")
+    elif model.__name__ == "EditorialRevisionOutput":
+        for key, limit in (("change_summary", 6), ("removed_concepts", 12), ("unresolved_review_items", 12)):
+            values = data.get(key)
+            if isinstance(values, str):
+                data[key] = [values]
+                notes.append(f"normalized editorial_revision.{key} from string to list")
+            elif isinstance(values, list) and len(values) > limit:
+                data[key] = values[:limit]
+                notes.append(f"trimmed editorial_revision.{key} from {len(values)} to {limit}")
     return data, notes
 
 
@@ -138,9 +147,22 @@ class HermesContentRunner:
             command += [h.toolsets_flag, h.toolsets]
         return command + [h.one_shot_flag, prompt]
 
-    def call(self, instruction: str, payload: dict[str, Any], model: type[BaseModel]) -> tuple[BaseModel, dict]:
+    def call(
+        self,
+        instruction: str,
+        payload: dict[str, Any],
+        model: type[BaseModel],
+        *,
+        payload_char_cap: int = WINDOWS_ONESHOT_PAYLOAD_CHAR_CAP,
+    ) -> tuple[BaseModel, dict]:
         raw_payload = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-        return self._call(instruction, raw_payload, model, repair_attempt=0)
+        return self._call(
+            instruction,
+            raw_payload,
+            model,
+            repair_attempt=0,
+            payload_char_cap=payload_char_cap,
+        )
 
     def _call(
         self,
@@ -149,8 +171,9 @@ class HermesContentRunner:
         model: type[BaseModel],
         *,
         repair_attempt: int,
+        payload_char_cap: int,
     ) -> tuple[BaseModel, dict]:
-        prompt = build_oneshot_prompt(instruction, raw_payload)
+        prompt = build_oneshot_prompt(instruction, raw_payload, payload_char_cap=payload_char_cap)
         start = time.time()
         proc = subprocess.run(
             self._command(prompt),
@@ -224,6 +247,7 @@ class HermesContentRunner:
                 repair_payload,
                 model,
                 repair_attempt=repair_attempt + 1,
+                payload_char_cap=payload_char_cap,
             )
             repair_meta["duration_ms"] += meta["duration_ms"]
             repair_meta["call_count"] += meta["call_count"]

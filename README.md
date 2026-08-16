@@ -239,4 +239,8 @@ Keep target swaps config-only whenever possible:
 
 Private client editing, immutable revision capture, and approved Hermes voice examples are documented in `docs/EDITORIAL_WORKSPACE.md`.
 
+The optional AI revision lane is disabled unless a review manifest sets `ai_revision_enabled: true`. It adds a plain-language side panel that submits coordinated Quick Read and Full Guide jobs to Vercel Blob while a headless local worker polls outbound, invokes the dedicated `radarwire-editorial-reviser` Hermes skill, validates the 1099FIRE truth profile, and returns a new immutable candidate. Viewing, manual editing, saving, and downloading remain available when the local worker is offline; AI requests remain queued until it returns. Prepare the Windows worker task with `scripts/windows/install-editorial-worker-task.ps1`. The script does not register anything unless `-WhatIfOnly:$false` is supplied intentionally.
+
+System-aware light and dark themes and browser dictation are progressive enhancements. Private screenshot, PDF, Word, and text attachments require the separate `ai_attachments_enabled: true` manifest gate. Typed revision and manual editing continue to work when any optional browser capability is unavailable.
+
 Cloud worker and container notes live in `docs/DEPLOYMENT.md` and `docs/MIGRATION_LOCAL_TO_CLOUD.md` as **future migration reference only**. The approved pilot still runs discovery and Hermes locally; Vercel hosts only the generated static review pages. Do not move the crawler, Hermes worker, SQLite state, or scheduler into cloud infrastructure without a separate migration decision.
