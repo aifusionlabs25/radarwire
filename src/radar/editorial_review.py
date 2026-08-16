@@ -1355,12 +1355,12 @@ SCRIPT += r"""(() => {
       const latest = body.job?.state || {};
       if (latest.state === 'completed') return showResult(latest.result);
       if (latest.state === 'failed') return fail(latest.message || 'RadarWire could not prepare this update. Your original draft is unchanged.');
-      if (latest.state === 'processing') setProgress('Hermes is revising both versions', 'RadarWire will check the result before it appears here.');
-      else setProgress('Update safely queued', 'Your computer can be offline. RadarWire will continue when the local worker is available.');
-      schedulePoll(jobId, 15000);
+      if (latest.state === 'processing') setProgress('Checking your changes', 'RadarWire is updating both versions and reviewing the result.');
+      else setProgress('Changes in progress', 'RadarWire is preparing your update. This usually takes about a minute.');
+      schedulePoll(jobId, 5000);
     } catch (problem) {
       setProgress('Update is still saved', 'RadarWire temporarily lost contact. It will check again automatically.');
-      schedulePoll(jobId, 30000);
+      schedulePoll(jobId, 15000);
     }
   };
   const requestRevision = async () => {
@@ -1393,7 +1393,7 @@ SCRIPT += r"""(() => {
     submit.hidden = true;
     instruction.disabled = true;
     if (voiceButton) voiceButton.disabled = true;
-    setProgress('Update safely queued', 'You can safely close this page while RadarWire prepares it.');
+    setProgress('Changes in progress', 'RadarWire is preparing your update. This usually takes about a minute.');
     poll(body.job_id);
   };
 

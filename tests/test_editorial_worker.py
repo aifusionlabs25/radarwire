@@ -144,6 +144,8 @@ def test_windows_worker_scripts_are_outbound_only_and_prepare_without_registerin
     assert "RADAR_EDITORIAL_SAVE_TOKEN" in runner
     assert "ZeroFreeBSTR" in runner
     assert "--watch" in runner
+    assert "[int]$PollSeconds = 10" in runner
+    assert "--poll-seconds" in runner
     assert "editorial-jobs" in runner
     assert "AtLogOn" in installer
     assert "prepared_only" in installer

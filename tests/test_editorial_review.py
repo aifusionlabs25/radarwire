@@ -321,8 +321,13 @@ def test_editorial_review_kit_can_enable_coordinated_ai_revision_panel(tmp_path)
     assert "const revisionHealthReady = checkRevisionService();" in script
     assert "const panelIsActive" in script
     assert "visibilitychange" in script
+    assert "Changes in progress" in script
+    assert "Checking your changes" in script
+    assert "usually takes about a minute" in script
+    assert "Your computer can be offline" not in script
+    assert "schedulePoll(jobId, 5000)" in script
     assert "schedulePoll(jobId, 15000)" in script
-    assert "schedulePoll(jobId, 30000)" in script
+    assert "schedulePoll(jobId, 30000)" not in script
     assert "setTimeout(() => poll(jobId), 4000)" not in script
     assert "setTimeout(() => poll(jobId), 8000)" not in script
     assert "prefers-color-scheme: dark" in script

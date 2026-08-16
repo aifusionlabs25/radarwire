@@ -4,6 +4,8 @@ param(
   [string]$Endpoint = 'https://site-export-preview.vercel.app/api/editorial-jobs',
   [string]$CredentialPath = "$ProjectRoot\.radar-data\private\editorial-save-token.dpapi.json",
   [string]$PythonExe = $env:RADAR_PYTHON_EXE,
+  [ValidateRange(5, 300)]
+  [int]$PollSeconds = 10,
   [switch]$Watch
 )
 
@@ -40,7 +42,7 @@ try {
     '--endpoint', $Endpoint,
     '--truth-profile', "$ProjectRoot\hermes\radarwire-editorial-reviser\references\1099fire-truth-profile.json"
   )
-  if ($Watch) { $arguments += '--watch' }
+  if ($Watch) { $arguments += @('--watch', '--poll-seconds', [string]$PollSeconds) }
   Push-Location $ProjectRoot
   try {
     $env:PYTHONPATH = 'src'
