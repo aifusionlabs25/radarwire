@@ -310,7 +310,7 @@ def _verdict_instruction() -> str:
         "Select only a candidate with artifact_risk <=3, no rejection flags, and strong overall quality; otherwise set selected_candidate_id "
         "to null so RadarWire keeps the existing control artwork. Do not edit or regenerate anything. Return strict JSON only matching: "
         '{"scores":[{"candidate_id":"A|B|C","brand_fit":0,"editorial_credibility":0,"human_authenticity":0,'
-        '"subject_relevance":0,"composition":0,"artifact_risk":0,"rejection_flags":[str],"critique":str}],' 
+        '"subject_relevance":0,"composition":0,"artifact_risk":0,"rejection_flags":[str],"critique":str}],'
         '"selected_candidate_id":"A|B|C|null","selection_rationale":str}.'
     )
 
